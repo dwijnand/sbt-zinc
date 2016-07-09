@@ -1,0 +1,4 @@
+> compile
+$ pause
+> checkWarnings 1
+> checkWarning 0 "fruitless type test"
