@@ -7,7 +7,7 @@ object Dependencies {
   val scala293 = "2.9.3"
   val scala210 = "2.10.6"
   val scala211 = "2.11.8"
-  val scala212 = "2.12.1"
+  val scala212 = "2.12.2"
 
   val bootstrapSbtVersion = "0.13.8"
   private val ioVersion = "1.0.0-M10"

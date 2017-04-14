@@ -21,7 +21,7 @@ import xsbti.compile.{
   MultipleOutput,
   Output,
   ScalaInstance,
-  SingleOutput
+  SingleOutput,
 }
 
 /** Factory methods for getting a java toolchain. */
