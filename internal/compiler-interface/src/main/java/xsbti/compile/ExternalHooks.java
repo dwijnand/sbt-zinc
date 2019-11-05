@@ -12,6 +12,8 @@
 package xsbti.compile;
 
 import java.io.File;
+import java.nio.file.Path;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -92,4 +94,21 @@ public interface ExternalHooks {
      * @return An instance of {@link ExternalHooks} with the specified lookup.
      */
     ExternalHooks withExternalLookup(Lookup externalLookup);
+
+    void storeEarlyAnalysis(CompileAnalysis analysis, MiniSetup setup);
+
+    Optional<Path> pickleJarPath();
+
+    void picklesComplete();
+
+    /**
+     *  Alternate means to tunnel cancelation from user down to hidden reporter.
+     */
+    boolean isCanceled();
+
+    /**
+     * Until interface stabilizes, park experimental hooks here.
+     */
+    Map<String, Object> extraHooks();
+
 }

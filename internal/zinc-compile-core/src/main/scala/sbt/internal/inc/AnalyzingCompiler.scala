@@ -59,6 +59,7 @@ final class AnalyzingCompiler(
 
   def apply(
       sources: Array[File],
+      getSource: SourceSource,
       changes: DependencyChanges,
       classpath: Array[File],
       singleOutput: File,
@@ -75,11 +76,12 @@ final class AnalyzingCompiler(
     val reporterConfig = basicReporterConfig.withMaximumErrors(maximumErrors)
     val reporter = ReporterManager.getReporter(log, reporterConfig)
     val progress = Optional.empty[CompileProgress]
-    compile(sources, changes, arguments.toArray, output, callback, reporter, cache, log, progress)
+    compile(sources, getSource, changes, arguments.toArray, output, callback, reporter, cache, log, progress)
   }
 
   def compile(
       sources: Array[File],
+      getSource: SourceSource,
       changes: DependencyChanges,
       options: Array[String],
       output: Output,
@@ -92,7 +94,7 @@ final class AnalyzingCompiler(
     val cached = cache(options, output, !changes.isEmpty, this, log, reporter)
     try {
       val progress = if (progressOpt.isPresent) progressOpt.get else IgnoreProgress
-      compile(sources, changes, callback, log, reporter, progress, cached)
+      compile(sources, getSource, changes, callback, log, reporter, progress, cached)
     } finally {
       cached match {
         case c: java.io.Closeable => c.close()
@@ -103,6 +105,7 @@ final class AnalyzingCompiler(
 
   def compile(
       sources: Array[File],
+      getSource: SourceSource,
       changes: DependencyChanges,
       callback: AnalysisCallback,
       log: xLogger,
@@ -113,13 +116,14 @@ final class AnalyzingCompiler(
     onArgsHandler(compiler.commandArguments(sources))
     call("xsbt.CompilerInterface", "run", log)(
       classOf[Array[File]],
+      classOf[SourceSource],
       classOf[DependencyChanges],
       classOf[AnalysisCallback],
       classOf[xLogger],
       classOf[Reporter],
       classOf[CompileProgress],
       classOf[CachedCompiler]
-    )(sources, changes, callback, log, reporter, progress, compiler)
+    )(sources, getSource, changes, callback, log, reporter, progress, compiler)
     ()
   }
 
@@ -347,7 +351,7 @@ object AnalyzingCompiler {
       // Extract the sources to be compiled
       val extractedSources = sourceJars
         .foldLeft(Set.empty[File]) { (extracted, sourceJar) =>
-          extracted ++ keepIfSource(unzip(sourceJar, dir))
+        extracted ++ keepIfSource(unzip(sourceJar, dir))
         }
         .toSeq
       val (sourceFiles, resources) = extractedSources.partition(isSource)

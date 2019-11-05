@@ -45,5 +45,5 @@ public interface CachedCompiler {
 	 * @param delegate The reporter that informs on the compiler's output.
 	 * @param progress The compiler progress associated with a Scala compiler.
 	 */
-	void run(File[] sources, DependencyChanges changes, AnalysisCallback callback, Logger logger, Reporter delegate, CompileProgress progress);
+	void run(File[] sources, SourceSource getSource, DependencyChanges changes, AnalysisCallback callback, Logger logger, Reporter delegate, CompileProgress progress);
 }

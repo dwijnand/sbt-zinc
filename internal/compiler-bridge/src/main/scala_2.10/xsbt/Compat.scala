@@ -12,12 +12,20 @@
 package xsbt
 
 import java.io.PrintWriter
+
+import xsbti.AnalysisCallback
 import xsbti.compile.Output
-import scala.reflect.{ internal => sri }
-import scala.reflect.internal.{ util => sriu }
-import scala.tools.nsc.{ Global, Settings }
+
+import scala.reflect.{internal => sri}
+import scala.reflect.internal.{util => sriu}
+import scala.tools.nsc.{Global, Settings}
 import scala.tools.nsc.interactive.RangePositions
-import scala.tools.nsc.symtab.Flags, Flags._
+import scala.tools.nsc.symtab.Flags
+import Flags._
+import scala.collection.mutable
+import java.nio.file.Path
+import scala.reflect.io.VirtualFile
+
 
 /**
  * Collection of hacks that make it possible for the compiler interface
@@ -54,6 +62,10 @@ import scala.tools.nsc.symtab.Flags, Flags._
  * The technique described above is used in several places below.
  *
  */
+class PathBackedVirtualFile(p: Path) extends VirtualFile(p.toString, p.toString) {
+  // Can't override file
+}
+
 abstract class Compat {
   val global: Global
   import global._
@@ -95,10 +107,8 @@ abstract class Compat {
 
     // Not present in 2.10
     @inline final def getterIn(base: Symbol): Symbol = sym.getter(base)
-    @inline final def setterIn(
-        base: Symbol,
-        hasExpandedName: Boolean = needsExpandedSetterName
-    ): Symbol =
+    @inline final def setterIn(base: Symbol,
+                               hasExpandedName: Boolean = needsExpandedSetterName): Symbol =
       sym.setter(base, hasExpandedName)
 
     // copied from 2.12.1 sources
@@ -184,6 +194,12 @@ object Compat {
     // Missing in 2.10
     @inline final def finalPosition: sriu.Position = self.source positionInUltimateSource self
   }
+
+  def pickleJava[G <: Global](global: G): Boolean = false
+
+  // No pileline pickling in 2.10
+  def picklePaths(run: Global#Run) = Iterable.empty[AnalysisCallback.PickleData]
+
 }
 
 private trait CachedCompilerCompat { self: CachedCompiler0 =>

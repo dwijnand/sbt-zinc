@@ -93,9 +93,10 @@ object Locate {
   }
 
   def toClassName(entry: String): String =
-    entry.stripSuffix(ClassExt).replace('/', '.')
+    entry.stripSuffix(ClassExt).stripSuffix(PickleExt).replace('/', '.')
 
   val ClassExt = ".class"
+  val PickleExt = ".sig"
 
   private class DirectoryDefinesClass(entry: File) extends DefinesClass {
     override def apply(binaryClassName: String): Boolean = classFile(entry, binaryClassName).isFile

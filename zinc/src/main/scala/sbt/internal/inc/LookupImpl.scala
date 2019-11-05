@@ -14,9 +14,10 @@ package sbt.internal.inc
 import java.io.File
 import java.util.Optional
 
-import xsbti.compile.{ Changes, CompileAnalysis, FileHash, MiniSetup }
+import xsbti.Logger
+import xsbti.compile.{Changes, CompileAnalysis, FileHash, MiniSetup}
 
-class LookupImpl(compileConfiguration: CompileConfiguration, previousSetup: Option[MiniSetup])
+class LookupImpl(compileConfiguration: CompileConfiguration, previousSetup: Option[MiniSetup], log: Logger)
     extends Lookup {
   private val classpath: Vector[File] = compileConfiguration.classpath.toVector
   private val classpathHash: Vector[FileHash] =
@@ -24,6 +25,7 @@ class LookupImpl(compileConfiguration: CompileConfiguration, previousSetup: Opti
 
   import sbt.internal.inc.JavaInterfaceUtil.EnrichOptional
   lazy val analyses: Vector[Analysis] = {
+    log.debug(() => s"Triggering complete analysis load for ${compileConfiguration.currentSetup.output().getSingleOutput}")
     classpath flatMap { entry =>
       compileConfiguration.perClasspathEntryLookup.analysis(entry).toOption.map {
         case a: Analysis => a

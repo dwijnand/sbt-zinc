@@ -47,7 +47,8 @@ public interface ScalaCompiler {
 	 * @param compiler The actual compiler that will perform the compilation step.
 	 */
 	void compile(File[] sources,
-	             DependencyChanges changes,
+                 SourceSource getSources,
+                 DependencyChanges changes,
 	             AnalysisCallback callback,
 	             Logger log,
 	             Reporter reporter,
@@ -73,12 +74,13 @@ public interface ScalaCompiler {
 	 *                    will report on the file being compiled.
 	 */
 	void compile(File[] sources,
-	             DependencyChanges changes,
-	             String[] options,
-	             Output output,
-	             AnalysisCallback callback,
-	             Reporter reporter,
-	             GlobalsCache cache,
-	             Logger log,
-	             Optional<CompileProgress> progressOpt);
+                 SourceSource getSources,
+				 DependencyChanges changes,
+				 String[] options,
+				 Output output,
+				 AnalysisCallback callback,
+				 Reporter reporter,
+				 GlobalsCache cache,
+				 Logger log,
+				 Optional<CompileProgress> progressOpt);
 }

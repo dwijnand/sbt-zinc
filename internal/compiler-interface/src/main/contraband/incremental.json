@@ -119,6 +119,15 @@
           "since": "0.1.0"
         },
         {
+          "name": "moreFlags",
+          "type": "long",
+          "default": "xsbti.compile.IncOptions.defaultMoreFlags()",
+          "doc": [
+            "Please look away."
+          ],
+          "since": "1.3.0"
+        },
+        {
           "name": "recompileOnMacroDef",
           "type": "java.util.Optional<Boolean>",
           "default": "xsbti.compile.IncOptions.defaultRecompileOnMacroDef()",
@@ -183,7 +192,7 @@
           "type": "String[]",
           "default": "xsbti.compile.IncOptions.defaultIgnoredScalacOptions()",
           "doc": "Array of regexes that will be used to determine if scalac options should be ignored if they change",
-          "since": "1.2.0"
+          "since": "1.3.0"
         },
         {
           "name": "strictMode",
@@ -236,6 +245,9 @@
         "}",
         "public static boolean defaultUseCustomizedFileManager() {",
         "    return false;",
+        "}",
+        "public static long defaultMoreFlags() {",
+        "    return 0;",
         "}",
         "public static boolean defaultStoreApis() {",
         "    return true;",

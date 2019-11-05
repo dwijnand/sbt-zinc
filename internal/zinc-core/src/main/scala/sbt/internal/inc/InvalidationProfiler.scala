@@ -13,6 +13,7 @@ package sbt.internal.inc
 
 import java.io.File
 
+import sbt.internal.inc.zprof.{CycleInvalidation, InvalidationEvent}
 import xsbti.UseScope
 
 import scala.collection.mutable
@@ -28,13 +29,14 @@ import scala.collection.mutable.ArrayBuffer
  * this class is not thread safe.
  */
 abstract class InvalidationProfiler {
-  def profileRun: RunProfiler
+  def profileRun: RunProfiler = profileRun("unknown")
+  def profileRun(id: String): RunProfiler
   def registerRun(run: zprof.ZincRun): Unit
 }
 
 object InvalidationProfiler {
   final val empty: InvalidationProfiler = new InvalidationProfiler {
-    override def profileRun: RunProfiler = RunProfiler.empty
+    override def profileRun(id: String): RunProfiler = RunProfiler.empty
     override def registerRun(run: zprof.ZincRun): Unit = ()
   }
 }
@@ -47,17 +49,19 @@ class ZincInvalidationProfiler extends InvalidationProfiler {
    * done to keep the memory overhead of the profiler to a minimum. */
   private final val stringTable: ArrayBuffer[String] = new ArrayBuffer[String](1000)
 
+  def string(i: Int) = stringTable(i)
+
   /* Maps strings to indices. The indices are long because we're overprotecting ourselves
    * in case the string table grows gigantic. This should not happen, but as the profiling
    * scheme of pprof does it and it's not cumbersome to implement it, we replicate the same design. */
   private final val stringTableIndices: mutable.HashMap[String, Int] =
     new mutable.HashMap[String, Int]
 
-  def profileRun: RunProfiler = new ZincProfilerImplementation
+  def profileRun(id: String): RunProfiler = new ZincProfilerImplementation(id)
 
   private final var runs: List[zprof.ZincRun] = Nil
   def registerRun(run: zprof.ZincRun): Unit = {
-    runs = run :: runs
+    synchronized { runs = run :: runs }
     ()
   }
 
@@ -78,8 +82,8 @@ class ZincInvalidationProfiler extends InvalidationProfiler {
     stringTable = stringTable
   )
 
-  private[inc] class ZincProfilerImplementation extends RunProfiler {
-    private def toStringTableIndex(string: String): Int = {
+  private[inc] class ZincProfilerImplementation(val id: String) extends RunProfiler {
+    private def toStringTableIndex(string: String): Int = ZincInvalidationProfiler.this.synchronized {
       stringTableIndices.get(string) match {
         case Some(index) =>
           val newIndex = index.toInt
@@ -90,7 +94,7 @@ class ZincInvalidationProfiler extends InvalidationProfiler {
           // Depending on the size of the index, use the first or second symbol table
           stringTable.insert(newIndex.toInt, string)
           stringTableIndices.put(string, newIndex)
-          lastKnownIndex = lastKnownIndex + 1
+          lastKnownIndex = newIndex
           newIndex
       }
     }
@@ -105,14 +109,15 @@ class ZincInvalidationProfiler extends InvalidationProfiler {
       compilationDurationNanos = durationNanos
     }
 
+    override def times = (compilationStartNanos, compilationDurationNanos)
+
     private def toPathStrings(files: Iterable[File]): Iterable[String] =
       files.map(_.getAbsolutePath)
 
     def toApiChanges(changes: APIChanges): Iterable[zprof.ApiChange] = {
       def toUsedNames(names: Iterable[UsedName]): Iterable[zprof.UsedName] = {
-        import scala.collection.JavaConverters._
         names.map { name =>
-          val scopes = name.scopes.asScala.map {
+          val scopes = name.scopes.toSet.map {
             case UseScope.Default      => zprof.Scope(toStringTableIndex("default"))
             case UseScope.Implicit     => zprof.Scope(toStringTableIndex("implicit"))
             case UseScope.PatMatTarget => zprof.Scope(toStringTableIndex("patmat target"))
@@ -142,6 +147,7 @@ class ZincInvalidationProfiler extends InvalidationProfiler {
       }
     }
 
+    private final var initial: Option[zprof.InitialChanges] = None
     def registerInitial(changes: InitialChanges): Unit = {
       import scala.collection.JavaConverters._
       val fileChanges = changes.internalSrc
@@ -150,14 +156,17 @@ class ZincInvalidationProfiler extends InvalidationProfiler {
         removed = toStringTableIndices(toPathStrings(fileChanges.getRemoved.asScala)).toList,
         modified = toStringTableIndices(toPathStrings(fileChanges.getChanged.asScala)).toList
       )
-      zprof.InitialChanges(
-        changes = Some(profChanges),
-        removedProducts = toStringTableIndices(toPathStrings(changes.removedProducts)).toList,
-        binaryDependencies = toStringTableIndices(toPathStrings(changes.binaryDeps)).toList,
-        externalChanges = toApiChanges(changes.external).toList
+      initial = Some(
+        zprof.InitialChanges(
+          changes = Some(profChanges),
+          removedProducts = toStringTableIndices(toPathStrings(changes.removedProducts)).toList,
+          binaryDependencies = toStringTableIndices(toPathStrings(changes.binaryDeps)).toList,
+          externalChanges = toApiChanges(changes.external).toList
+        )
       )
-      ()
     }
+
+    override def initialChanges: Option[zprof.InitialChanges] = initial
 
     private final var currentEvents: List[zprof.InvalidationEvent] = Nil
     def registerEvent(
@@ -173,8 +182,10 @@ class ZincInvalidationProfiler extends InvalidationProfiler {
         reason = reason
       )
 
-      currentEvents = event :: currentEvents
+      synchronized { currentEvents = event :: currentEvents }
     }
+
+    override def invalidationEvents = currentEvents
 
     private final var cycles: List[zprof.CycleInvalidation] = Nil
     def registerCycle(
@@ -201,19 +212,23 @@ class ZincInvalidationProfiler extends InvalidationProfiler {
         shouldCompileIncrementally = shouldCompileIncrementally
       )
 
-      cycles = newCycle :: cycles
+      synchronized { cycles = newCycle :: cycles }
       ()
     }
+
+    override def cycleInvalidations = cycles
+
   }
 }
 
 /**
  * Defines the interface of a profiler. This interface is used in the guts of
- * `IncrementalCommon` and `IncrementalNameHashing`. A profiler of a run
+ * [[IncrementalCommon]] and [[IncrementalNameHashing]]. A profiler of a run
  * is instantiated afresh in `Incremental.compile` and then added to the profiler
  * instance managed by the client.
  */
 abstract class RunProfiler {
+  def id: String
   def timeCompilation(
       startNanos: Long,
       durationNanos: Long
@@ -240,10 +255,17 @@ abstract class RunProfiler {
       nextInvalidations: Iterable[String],
       shouldCompileIncrementally: Boolean
   ): Unit
+
+  def times: (Long, Long)
+  def initialChanges: Option[zprof.InitialChanges]
+  def invalidationEvents: List[zprof.InvalidationEvent]
+  def cycleInvalidations: List[zprof.CycleInvalidation]
+
 }
 
 object RunProfiler {
   final val empty = new RunProfiler {
+    val id = "empty"
     def timeCompilation(startNanos: Long, durationNanos: Long): Unit = ()
     def registerInitial(changes: InitialChanges): Unit = ()
 
@@ -263,6 +285,14 @@ object RunProfiler {
         nextInvalidations: Iterable[String],
         shouldCompileIncrementally: Boolean
     ): Unit = ()
+
+    override def times: (Long, Long) = (0,0)
+
+    override def initialChanges: Option[zprof.InitialChanges] = None
+
+    override def invalidationEvents: List[InvalidationEvent] = Nil
+
+    override def cycleInvalidations: List[CycleInvalidation] = Nil
   }
 }
 

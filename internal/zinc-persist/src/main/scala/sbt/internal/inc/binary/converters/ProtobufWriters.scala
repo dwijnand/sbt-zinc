@@ -1,12 +1,8 @@
 /*
  * Zinc - The incremental compiler for Scala.
- * Copyright Lightbend, Inc. and Mark Harrah
- *
- * Licensed under Apache License 2.0
- * (http://www.apache.org/licenses/LICENSE-2.0).
- *
- * See the NOTICE file distributed with this work for
- * additional information regarding copyright ownership.
+ * Copyright 2011 - 2017, Lightbend, Inc.
+ * Copyright 2008 - 2010, Mark Harrah
+ * This software is released under the terms written in LICENSE.
  */
 
 package sbt.internal.inc.binary.converters
@@ -564,9 +560,8 @@ final class ProtobufWriters(mapper: WriteMapper) {
     }
   }
 
-  def toAnalyzedClass(
-      shouldStoreApis: Boolean
-  )(analyzedClass: AnalyzedClass): schema.AnalyzedClass = {
+  def toAnalyzedClass(shouldStoreApis: Boolean)(
+      analyzedClass: AnalyzedClass): schema.AnalyzedClass = {
     def toCompanions(companions: Companions): schema.Companions = {
       val classApi = Some(toClassLike(companions.classApi()))
       val objectApi = Some(toClassLike(companions.objectApi()))
@@ -587,6 +582,7 @@ final class ProtobufWriters(mapper: WriteMapper) {
     val hasMacro = analyzedClass.hasMacro
     val name = analyzedClass.name()
     val nameHashes = analyzedClass.nameHashes().toSchemaList(toNameHash)
+    val provenance = analyzedClass.provenance()
     schema.AnalyzedClass(
       compilationTimestamp = compilationTimestamp,
       name = name,
@@ -594,20 +590,22 @@ final class ProtobufWriters(mapper: WriteMapper) {
       apiHash = apiHash,
       nameHashes = nameHashes,
       hasMacro = hasMacro,
-      extraHash = extraHash
+      extraHash = extraHash,
+      provenance = provenance
     )
   }
 
-  private final val fileToString = (f: File) => toStringPath(f)
+  private final val sourceToString = (f: File) => toStringPath(mapper.mapSourceFile(f))
+  private final val libraryToString = (f: File) => toStringPath(mapper.mapBinaryFile(f))
+  private final val prodToString = (f: File) => toStringPath(mapper.mapProductFile(f))
+
   private final val stringId = identity[String] _
   def toRelations(relations: Relations): schema.Relations = {
     import sbt.internal.util.Relation
 
     def toUsedName(usedName: UsedName): schema.UsedName = {
-      import scala.collection.JavaConverters._
       val name = usedName.name
-      val javaIterator = usedName.scopes.iterator()
-      val scopes = javaIterator.asScala.map(toUseScope).toList
+      val scopes = usedName.scopes.toSet.map(toUseScope).toList
       schema.UsedName(name = name, scopes = scopes)
     }
 
@@ -630,36 +628,33 @@ final class ProtobufWriters(mapper: WriteMapper) {
       }
     }
 
-    val srcProd = toMap(relations.srcProd, fileToString, fileToString)
-    val libraryDep = toMap(relations.libraryDep, fileToString, fileToString)
-    val libraryClassName = toMap(relations.libraryClassName, fileToString, stringId)
+    val srcProd = toMap(relations.srcProd, sourceToString, prodToString)
+    val libraryDep = toMap(relations.libraryDep, sourceToString, libraryToString)
+    val libraryClassName = toMap(relations.libraryClassName, libraryToString, stringId)
     val memberRefInternal = toMap(relations.memberRef.internal, stringId, stringId)
     val memberRefExternal = toMap(relations.memberRef.external, stringId, stringId)
     val inheritanceInternal = toMap(relations.inheritance.internal, stringId, stringId)
     val inheritanceExternal = toMap(relations.inheritance.external, stringId, stringId)
     val localInheritanceInternal = toMap(relations.localInheritance.internal, stringId, stringId)
     val localInheritanceExternal = toMap(relations.localInheritance.external, stringId, stringId)
-    val classes = toMap(relations.classes, fileToString, stringId)
+    val classes = toMap(relations.classes, sourceToString, stringId)
     val productClassName = toMap(relations.productClassName, stringId, stringId)
     val names = toUsedNamesMap(relations.names)
     val memberRef = Some(
       schema.ClassDependencies(
         internal = memberRefInternal,
         external = memberRefExternal
-      )
-    )
+      ))
     val inheritance = Some(
       schema.ClassDependencies(
         internal = inheritanceInternal,
         external = inheritanceExternal
-      )
-    )
+      ))
     val localInheritance = Some(
       schema.ClassDependencies(
         internal = localInheritanceInternal,
         external = localInheritanceExternal
-      )
-    )
+      ))
     schema.Relations(
       srcProd = srcProd,
       libraryDep = libraryDep,
@@ -680,11 +675,9 @@ final class ProtobufWriters(mapper: WriteMapper) {
     schema.APIs(internal = internal, external = external)
   }
 
-  def toApisFile(
-      apis0: APIs,
-      version: schema.Version,
-      shouldStoreApis: Boolean
-  ): schema.APIsFile = {
+  def toApisFile(apis0: APIs,
+                 version: schema.Version,
+                 shouldStoreApis: Boolean): schema.APIsFile = {
     val apis = Some(toApis(apis0, shouldStoreApis))
     schema.APIsFile(version = version, apis = apis)
   }
@@ -702,11 +695,9 @@ final class ProtobufWriters(mapper: WriteMapper) {
     )
   }
 
-  def toAnalysisFile(
-      analysis0: Analysis,
-      miniSetup0: MiniSetup,
-      version: schema.Version
-  ): schema.AnalysisFile = {
+  def toAnalysisFile(analysis0: Analysis,
+                     miniSetup0: MiniSetup,
+                     version: schema.Version): schema.AnalysisFile = {
     val analysis = Some(toAnalysis(analysis0))
     val miniSetup = Some(toMiniSetup(miniSetup0))
     schema.AnalysisFile(version = version, analysis = analysis, miniSetup = miniSetup)

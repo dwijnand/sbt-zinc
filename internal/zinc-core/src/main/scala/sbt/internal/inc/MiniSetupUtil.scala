@@ -15,16 +15,8 @@ package inc
 
 import java.io.File
 
-import xsbti.T2
-import xsbti.compile.{
-  CompileOrder,
-  MiniOptions,
-  MiniSetup,
-  MultipleOutput,
-  OutputGroup,
-  SingleOutput,
-  Output => APIOutput
-}
+import xsbti.{Logger, T2}
+import xsbti.compile.{CompileOrder, MiniOptions, MiniSetup, MultipleOutput, OutputGroup, SingleOutput, Output => APIOutput}
 
 /**
  * Define all the implicit instances that are used in the Scala implementation
@@ -40,15 +32,33 @@ object MiniSetupUtil {
   /* *********************************************************************** */
 
   /* Define first because `Equiv[CompileOrder.value]` dominates `Equiv[MiniSetup]`. */
-  implicit def equivCompileSetup(equivOpts: Equiv[MiniOptions])(
+  def equivCompileSetup(logger: Logger, equivOpts: Equiv[MiniOptions])(
       implicit equivOutput: Equiv[APIOutput],
       equivComp: Equiv[String]
   ): Equiv[MiniSetup] = {
     new Equiv[MiniSetup] {
       def equiv(a: MiniSetup, b: MiniSetup) = {
-        def sameOutput = equivOutput.equiv(a.output, b.output)
-        def sameOptions = equivOpts.equiv(a.options, b.options)
-        def sameCompiler = equivComp.equiv(a.compilerVersion, b.compilerVersion)
+        def sameOutput = {
+          val ret = equivOutput.equiv(a.output, b.output)
+          if(!ret) logger.debug( () => s"Found differing output ${a.output} ${b.output}")
+          ret
+        }
+        def prettyOptions(a: MiniOptions) = s"scala=${a.scalacOptions.mkString(",")} java=${a.javacOptions.mkString(",")}"
+        def sameOptions = {
+          val ret = equivOpts.equiv(a.options, b.options)
+          if(!ret) logger.debug( () =>
+            s"""
+               |"Found differing options:
+               |a: ${prettyOptions(a.options)}
+               |b: ${prettyOptions(b.options)}
+             """.stripMargin)
+          ret
+        }
+        def sameCompiler = {
+          val ret = equivComp.equiv(a.compilerVersion, b.compilerVersion)
+          if(!ret) logger.debug( () => s"Found differing compiler version ${a.compilerVersion} ${b.compilerVersion}")
+          ret
+        }
         def sameOrder = a.order == b.order
         def sameExtra = equivPairs.equiv(a.extra, b.extra)
 

@@ -47,6 +47,7 @@ public interface Stamp {
      * Get the last modified time (in milliseconds from Epoch) of a file if the stamp supports it.
      *
      * @return An optional last modified time.
-     */
+
+    Apparently unused.
     public Optional<Long> getLastModified();
-}
+     */}

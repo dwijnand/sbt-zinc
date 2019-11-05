@@ -25,6 +25,8 @@ final class API(val global: CallbackGlobal) extends Compat with GlobalHelpers wi
   import scala.collection.mutable
   private val nonLocalClassSymbolsInCurrentUnits = new mutable.HashSet[Symbol]()
 
+  val pickleJava = global.pickleJava
+
   def newPhase(prev: Phase) = new ApiPhase(prev)
   class ApiPhase(prev: Phase) extends GlobalPhase(prev) {
     override def description = "Extracts the public API from source files."
@@ -32,6 +34,10 @@ final class API(val global: CallbackGlobal) extends Compat with GlobalHelpers wi
     override def run(): Unit = {
       val start = System.currentTimeMillis
       super.run()
+
+      //  We're running right after pickling, so store pickles now.
+      val pickleData = Compat.picklePaths(currentRun)
+      callback.processPickleData(pickleData.toArray)
 
       // After processing all units, register generated classes
       registerGeneratedClasses(nonLocalClassSymbolsInCurrentUnits.iterator)
@@ -42,8 +48,15 @@ final class API(val global: CallbackGlobal) extends Compat with GlobalHelpers wi
       debuglog("API phase took : " + ((stop - start) / 1000.0) + " s")
     }
 
+    // TODO In 2.13, shouldSkipThisPhaseForJava should be overridden instead of cancelled
+    //  override def shouldSkipThisPhaseForJava = !pickleJava
+    override def cancelled(unit: CompilationUnit) = {
+      if (Thread.interrupted()) reporter.cancelled = true
+      reporter.cancelled || unit.isJava && !pickleJava
+    }
+
     def apply(unit: global.CompilationUnit): Unit = processUnit(unit)
-    private def processUnit(unit: CompilationUnit) = if (!unit.isJava) processScalaUnit(unit)
+    private def processUnit(unit: CompilationUnit) = if (!unit.isJava || pickleJava) processScalaUnit(unit)
     private def processScalaUnit(unit: CompilationUnit): Unit = {
       val sourceFile = unit.source.file.file
       debuglog("Traversing " + sourceFile)
@@ -182,10 +195,10 @@ final class API(val global: CallbackGlobal) extends Compat with GlobalHelpers wi
     }
     def isTopLevel(sym: Symbol): Boolean = {
       !ignoredSymbol(sym) &&
-      sym.isStatic &&
-      !sym.isImplClass &&
-      !sym.hasFlag(Flags.JAVA) &&
-      !sym.isNestedClass
+        sym.isStatic &&
+        !sym.isImplClass &&
+        (!sym.hasFlag(Flags.JAVA) || pickleJava) &&
+        !sym.isNestedClass
     }
   }
 

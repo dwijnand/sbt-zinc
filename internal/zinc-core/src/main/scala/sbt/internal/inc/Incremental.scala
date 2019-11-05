@@ -15,20 +15,18 @@ package inc
 
 import java.io.File
 
-import sbt.util.{ Level, Logger }
-import xsbti.compile.analysis.{ ReadStamps, Stamp => XStamp }
-import xsbti.compile.{
-  ClassFileManager => XClassFileManager,
-  CompileAnalysis,
-  DependencyChanges,
-  IncOptions,
-  Output
-}
+import sbt.util.{Level, Logger}
+import xsbti.compile.analysis.{ReadStamps, Stamp => XStamp}
+import xsbti.compile.{CompileAnalysis, DependencyChanges, IncOptions, Output, ClassFileManager => XClassFileManager}
 
 /**
  * Define helpers to run incremental compilation algorithm with name hashing.
  */
 object Incremental {
+
+  val ONLY_PICKLE_JAVA = 1l
+  def onlyPickleJava(options: IncOptions) = (options.moreFlags() & ONLY_PICKLE_JAVA) != 0
+
   class PrefixingLogger(val prefix: String)(orig: Logger) extends Logger {
     def trace(t: => Throwable): Unit = orig.trace(t)
     def success(message: => String): Unit = orig.success(message)
@@ -37,6 +35,11 @@ object Incremental {
       case _           => orig.log(level, message)
     }
   }
+
+  sealed trait CompilationType
+  case object NoChange extends CompilationType
+  case object Full extends CompilationType
+  case object Partial extends CompilationType
 
   /**
    * Runs the incremental compiler algorithm.
@@ -71,36 +74,60 @@ object Incremental {
       profiler: InvalidationProfiler = InvalidationProfiler.empty
   )(implicit equivS: Equiv[XStamp]): (Boolean, Analysis) = {
     val previous = previous0 match { case a: Analysis => a }
-    val runProfiler = profiler.profileRun
+    val runProfiler = profiler.profileRun(output.toString)
     val incremental: IncrementalCommon = new IncrementalNameHashing(log, options, runProfiler)
     val initialChanges =
-      incremental.detectInitialChanges(sources, previous, current, lookup, output)
+      incremental.detectInitialChanges(sources, previous, current, lookup, options.externalHooks(), output)
     val binaryChanges = new DependencyChanges {
       val modifiedBinaries = initialChanges.binaryDeps.toArray
       val modifiedClasses = initialChanges.external.allModified.toArray
       def isEmpty = modifiedBinaries.isEmpty && modifiedClasses.isEmpty
     }
-    val (initialInvClasses, initialInvSources) =
+    val (compilationType, initialInvClasses, initialInvSources0) =
       incremental.invalidateInitial(previous.relations, initialChanges)
+
+    // If there's any compilation at all, invalidate all java sources too, so we have access to their type
+    // information.
+    lazy val javaSources = sources.filter(_.getName.endsWith(".java"))
+    val (initialInvSources: Set[File], invalidateAllThreshold: Int) =
+      if(compilationType == Incremental.NoChange)
+        (Set.empty, 0)
+      else if(!onlyPickleJava(options) || javaSources.isEmpty)
+        (initialInvSources0, (sources.size * options.recompileAllFraction()).toInt)
+      else {
+        incremental.log.debug("Invalidating all java sources for pickle generation.")
+        // If all java sources are invalidated automatically, we don't count them towards the threshold
+        // for full recompilation of the project.
+        (initialInvSources0 ++ javaSources, javaSources.size + ((sources.size - javaSources.size) * options.recompileAllFraction()).toInt)
+      }
+
     if (initialInvClasses.nonEmpty || initialInvSources.nonEmpty)
-      if (initialInvSources == sources) incremental.log.debug("All sources are invalidated.")
+      if (initialInvSources == sources && (compilationType != Incremental.Full)) // no point alerting them twice
+        incremental.log.debug("All sources are invalidated.")
       else
         incremental.log.debug(
           "All initially invalidated classes: " + initialInvClasses + "\n" +
-            "All initially invalidated sources:" + initialInvSources + "\n"
-        )
+            (if(onlyPickleJava(options))
+              "All initially invalidated scala sources:" + initialInvSources.filter(_.getName.endsWith(".scala")) + "\n"
+            else
+              "All initially invalidated sources:" + initialInvSources + "\n"))
+
     val analysis = manageClassfiles(options, output, outputJarContent) { classfileManager =>
-      incremental.cycle(
-        initialInvClasses,
-        initialInvSources,
-        sources,
-        binaryChanges,
-        lookup,
-        previous,
-        doCompile(compile, callbackBuilder, classfileManager),
-        classfileManager,
-        1
-      )
+      if(initialInvClasses.isEmpty && initialInvSources.isEmpty) {
+        options.externalHooks().picklesComplete()
+        previous
+      } else
+        incremental.cycle(initialInvClasses,
+                        initialInvSources,
+                        sources,
+                        invalidateAllThreshold,
+                        binaryChanges,
+                        lookup,
+                        previous,
+                        doCompile(compile, callbackBuilder, classfileManager),
+                        classfileManager,
+                        1,
+                        javaSources)
     }
     (initialInvClasses.nonEmpty || initialInvSources.nonEmpty, analysis)
   }
@@ -112,13 +139,15 @@ object Incremental {
       compile: (Set[File], DependencyChanges, xsbti.AnalysisCallback, XClassFileManager) => Unit,
       callbackBuilder: AnalysisCallback.Builder,
       classFileManager: XClassFileManager
-  )(srcs: Set[File], changes: DependencyChanges): Analysis = {
-    // Note `ClassFileManager` is shared among multiple cycles in the same incremental compile run,
-    // in order to rollback entirely if transaction fails. `AnalysisCallback` is used by each cycle
-    // to report its own analysis individually.
-    val callback = callbackBuilder.build()
-    compile(srcs, changes, callback, classFileManager)
-    callback.get
+  ) = new CompileCycle {
+    override def apply(srcs: Set[File], changes: DependencyChanges, process:ProcessAnalysis) = {
+      // Note `ClassFileManager` is shared among multiple cycles in the same incremental compile run,
+      // in order to rollback entirely if transaction fails. `AnalysisCallback` is used by each cycle
+      // to report its own analysis individually.
+      val callback = callbackBuilder.build(process)
+      compile(srcs, changes, callback, classFileManager)
+      callback.getFinal
+    }
   }
 
   // the name of system property that was meant to enable debugging mode of incremental compiler but
@@ -132,18 +161,15 @@ object Incremental {
   private[inc] def apiDebug(options: IncOptions): Boolean =
     options.apiDebug || java.lang.Boolean.getBoolean(apiDebugProp)
 
-  private[sbt] def prune(
-      invalidatedSrcs: Set[File],
-      previous0: CompileAnalysis,
-      output: Output,
-      outputJarContent: JarUtils.OutputJarContent
-  ): Analysis = {
+  private[sbt] def prune(invalidatedSrcs: Set[File],
+                         previous0: CompileAnalysis,
+                         output: Output,
+                         outputJarContent: JarUtils.OutputJarContent): Analysis = {
     val previous = previous0.asInstanceOf[Analysis]
     IncrementalCommon.pruneClassFilesOfInvalidations(
       invalidatedSrcs,
       previous,
-      ClassFileManager.deleteImmediately(output, outputJarContent)
-    )
+      ClassFileManager.deleteImmediately(output, outputJarContent))
   }
 
   private[this] def manageClassfiles[T](

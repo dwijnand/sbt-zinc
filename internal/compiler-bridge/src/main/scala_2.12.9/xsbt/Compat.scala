@@ -8,38 +8,45 @@
  * See the NOTICE file distributed with this work for
  * additional information regarding copyright ownership.
  */
-
 package xsbt
 
 import java.io.PrintWriter
+
 import xsbti.compile.Output
+
 import scala.tools.nsc.Settings
-import scala.tools.nsc.interpreter.shell.ReplReporterImpl
-import scala.collection.mutable
-import xsbti.AnalysisCallback.PickleData
-import scala.tools.nsc.Global
+import scala.util.{Properties, Try}
 import java.nio.file
-import scala.util.Try
+
+import scala.collection.mutable
+import scala.tools.nsc.Global
+import xsbti.AnalysisCallback.PickleData
+
+import scala.tools.nsc.settings.MutableSettings
+import scala.tools.nsc.util.ShowPickled
 import java.nio.file.Path
 import scala.reflect.io.VirtualFile
 
+
 // Virtual file that can claim to have an underlying file.
-class PathBackedVirtualFile(p: Path) extends VirtualFile(p.toString, p.toString) {
+class PathBackedVirtualFile(p: Path) extends VirtualFile(p.getFileName.toString, p.toString) {
   override def file = p.toFile
 }
 
 abstract class Compat
 object Compat {
-  // IR is renanmed to Results
-  val Results = scala.tools.nsc.interpreter.Results
+  // IR is renamed to Results
+  val Results = scala.tools.nsc.interpreter.IR
 
   // IMain in 2.13 accepts ReplReporter
-  def replReporter(settings: Settings, writer: PrintWriter) =
-    new ReplReporterImpl(settings, writer)
+  def replReporter(settings: Settings, writer: PrintWriter) = writer
 
-  def pickleJava[G <: Global](global: G): Boolean = false // global.settings.YpickleJava
+  def pickleJava[G <: Global](global: G): Boolean = global.settings.YpickleJava
 
-  // Extract pickle data and package without using any scalac classes.
+  // Prepare pickle data for eventual storage, computing path within jar file from symbol ownership
+  // and storing data in a class that does not rely on a shared scala library.
+  // This is almost verbatim copied from scala.tools.nsc.PipelineMain, except that actually writing to the jar file
+  // is deferred to AnalysisCallback, after the final incremental compilation cycle.
   def picklePaths[G <: Global](run: G#Run): Iterable[PickleData] = {
 
     val rootPath = file.Paths.get("__ROOT__")

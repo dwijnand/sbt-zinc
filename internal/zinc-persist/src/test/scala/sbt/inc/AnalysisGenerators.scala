@@ -100,15 +100,15 @@ trait AnalysisGenerators {
   private[this] def makeClassLike(name: String, definitionType: DefinitionType): ClassLike =
     ClassLike.of(
       name,
-      Public.of(),
-      APIs.emptyModifiers,
-      Array(),
-      definitionType,
-      lzy(EmptyType.of()),
-      lzy(emptyStructure),
-      Array(),
-      Array(),
-      true,
+                 Public.of(),
+                 APIs.emptyModifiers,
+                 Array(),
+                 definitionType,
+                 lzy(EmptyType.of()),
+                 lzy(emptyStructure),
+                 Array(),
+                 Array(),
+                 true,
       Array()
     )
 
@@ -136,6 +136,7 @@ trait AnalysisGenerators {
       apiHash <- arbitrary[Int]
       hasMacro <- arbitrary[Boolean]
       nameHashes <- genNameHashes(Seq(name))
+      provenance <- arbitrary[String]
     } yield {
       AnalyzedClass.of(
         startTime,
@@ -144,7 +145,8 @@ trait AnalysisGenerators {
         apiHash,
         nameHashes,
         hasMacro,
-        apiHash // The default is to use the public API hash
+        apiHash, // The default is to use the public API hash
+        provenance
       )
     }
 
@@ -243,12 +245,12 @@ trait AnalysisGenerators {
       )
     } yield Relations.make(
       srcProd,
-      libraryDep,
-      libraryClassName,
-      internal,
-      external,
-      classes,
-      names,
+                     libraryDep,
+                     libraryClassName,
+                     internal,
+                     external,
+                     classes,
+                     names,
       productClassName
     )
 

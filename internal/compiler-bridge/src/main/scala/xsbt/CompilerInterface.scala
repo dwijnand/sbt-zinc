@@ -17,6 +17,9 @@ import scala.tools.nsc.Settings
 import scala.collection.mutable
 import Log.debug
 import java.io.File
+import java.io.Closeable
+import scala.reflect.internal.util.BatchSourceFile
+import scala.reflect.io.{AbstractFile, VirtualFile}
 
 final class CompilerInterface {
   def newCompiler(
@@ -27,16 +30,15 @@ final class CompilerInterface {
   ): CachedCompiler =
     new CachedCompiler0(options, output, new WeakLog(initialLog, initialDelegate))
 
-  def run(
-      sources: Array[File],
-      changes: DependencyChanges,
-      callback: AnalysisCallback,
-      log: Logger,
-      delegate: Reporter,
-      progress: CompileProgress,
-      cached: CachedCompiler
-  ): Unit =
-    cached.run(sources, changes, callback, log, delegate, progress)
+  def run(sources: Array[File],
+          getSource: SourceSource,
+          changes: DependencyChanges,
+          callback: AnalysisCallback,
+          log: Logger,
+          delegate: Reporter,
+          progress: CompileProgress,
+          cached: CachedCompiler): Unit =
+    cached.run(sources, getSource, changes, callback, log, delegate, progress)
 }
 
 class InterfaceCompileFailed(
@@ -111,19 +113,17 @@ private final class CachedCompiler0(args: Array[String], output: Output, initial
   def infoOnCachedCompiler(compilerId: String): String =
     s"[zinc] Running cached compiler $compilerId for Scala compiler $versionString"
 
-  def run(
-      sources: Array[File],
-      changes: DependencyChanges,
-      callback: AnalysisCallback,
-      log: Logger,
-      delegate: Reporter,
-      progress: CompileProgress
-  ): Unit = synchronized {
+  def run(sources: Array[File],
+          getSource: SourceSource,
+          changes: DependencyChanges,
+          callback: AnalysisCallback,
+          log: Logger,
+          delegate: Reporter,
+          progress: CompileProgress): Unit = synchronized {
     debug(log, infoOnCachedCompiler(hashCode().toLong.toHexString))
     val dreporter = DelegatingReporter(settings, delegate)
-    try {
-      run(sources.toList, changes, callback, log, dreporter, progress)
-    } finally {
+    try { run(sources.toList, getSource, changes, callback, log, dreporter, progress) }
+    finally {
       dreporter.dropDelegate()
     }
   }
@@ -131,14 +131,13 @@ private final class CachedCompiler0(args: Array[String], output: Output, initial
   private def prettyPrintCompilationArguments(args: Array[String]) =
     args.mkString("[zinc] The Scala compiler is invoked with:\n\t", "\n\t", "")
   private val StopInfoError = "Compiler option supplied that disabled Zinc compilation."
-  private[this] def run(
-      sources: List[File],
-      changes: DependencyChanges,
-      callback: AnalysisCallback,
-      log: Logger,
-      underlyingReporter: DelegatingReporter,
-      compileProgress: CompileProgress
-  ): Unit = {
+  private[this] def run(sources: List[File],
+                        getSource: SourceSource,
+                        changes: DependencyChanges,
+                        callback: AnalysisCallback,
+                        log: Logger,
+                        underlyingReporter: DelegatingReporter,
+                        compileProgress: CompileProgress): Unit = {
 
     if (command.shouldStopWithInfo) {
       underlyingReporter.info(null, command.getInfoMessage(compiler), true)
@@ -149,12 +148,21 @@ private final class CachedCompiler0(args: Array[String], output: Output, initial
       debug(log, prettyPrintCompilationArguments(args))
       compiler.set(callback, underlyingReporter)
       val run = new compiler.ZincRun(compileProgress)
-      val sortedSourceFiles = sources.map(_.getAbsolutePath).sortWith(_ < _)
-      run.compile(sortedSourceFiles)
+      if(getSource.available) {
+        val sortedSourcePaths = sources.map(_.toPath).sortBy(_.toAbsolutePath.toString)
+        val abstractSourceFiles = sortedSourcePaths.map { p =>
+          val vf = new PathBackedVirtualFile(p)
+          new BatchSourceFile(vf, getSource(p).toCharArray)
+        }
+        run.compileSources(abstractSourceFiles)
+      }
+      else {
+        val sortedSourceFiles = sources.map(_.getAbsolutePath).sorted
+        run.compile(sortedSourceFiles)
+      }
       processUnreportedWarnings(run)
-      underlyingReporter.problems.foreach(
-        p => callback.problem(p.category, p.position, p.message, p.severity, true)
-      )
+      underlyingReporter.problems.foreach(p =>
+        callback.problem(p.category, p.position, p.message, p.severity, true))
     }
 
     underlyingReporter.printSummary()
@@ -181,10 +189,8 @@ private final class CachedCompiler0(args: Array[String], output: Output, initial
 
   def processUnreportedWarnings(run: compiler.Run): Unit = {
     // allConditionalWarnings and the ConditionalWarning class are only in 2.10+
-    final class CondWarnCompat(
-        val what: String,
-        val warnings: mutable.ListBuffer[(compiler.Position, String)]
-    )
+    final class CondWarnCompat(val what: String,
+                               val warnings: mutable.ListBuffer[(compiler.Position, String)])
     implicit def compat(run: AnyRef): Compat = new Compat
     final class Compat { def allConditionalWarnings = List[CondWarnCompat]() }
 

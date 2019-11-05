@@ -14,7 +14,10 @@ package xsbti;
 import xsbti.api.DependencyContext;
 
 import java.io.File;
+import java.nio.file.Path;
 import java.util.EnumSet;
+import java.util.Map;
+import java.util.Optional;
 
 public interface AnalysisCallback {
     /**
@@ -116,6 +119,13 @@ public interface AnalysisCallback {
     void api(File sourceFile, xsbti.api.ClassLike classApi);
 
     /**
+     * Is this source file in the current compilation (even if not in the current run)?
+     * @param file
+     * @return
+     */
+    boolean inCompilation(File file);
+
+    /**
      * Register a class containing an entry point coming from a given source file.
      *
      * A class is an entry point if its bytecode contains a method with the
@@ -165,12 +175,37 @@ public interface AnalysisCallback {
 
     /**
      * Communicate to the callback that the API phase has finished.
-     *
      * For instance, you can use this method it to wait on asynchronous tasks.
      */
     void apiPhaseCompleted();
 
+    // Essentially s.r.i.PickleBuffer, but without referring to scala classes.
+    public static class PickleData {
+        Object _orig;
+        String _fqcn;
+        byte[] _bytes;
+        int _writeIndex;
+        Path _path;
+        public PickleData(Object orig, String fqcn, byte[] bytes, int writeIndex, Path path) {
+            this._orig = orig;
+            this._fqcn = fqcn;
+            this._bytes = bytes;
+            this._writeIndex = writeIndex;
+            this._path = path;
+        }
+        public String fqcn() {return _fqcn;}
+        public Object orig() {return _orig;}
+        public byte[] bytes() { return _bytes;}
+        public int writeIndex() { return _writeIndex;}
+        public Path path() { return _path; }
+    }
+
     /**
+     * Pass new pickle data and write analysis as of this point.
+     */
+    void processPickleData(PickleData[] data);
+
+                           /**
      * Return whether incremental compilation is enabled or not.
      *
      * This method is useful to know whether the incremental compilation
@@ -201,5 +236,17 @@ public interface AnalysisCallback {
      * can repurpose `classesInOutputJar` to only do 1).
      */
     java.util.Set<String> classesInOutputJar();
+
+
+    /**
+     * Alternate mechanism for canceling compilation, since the actual s.t.n.reporters.Reporter
+     * is not accessible to anyone who might want to cancel.
+     */
+    boolean isCanceled();
+
+    /**
+     * Invoked within ZincRun#advancePhase, typically for timing diagnostics.
+     */
+    void advancePhase(String prev, String next);
 
 }

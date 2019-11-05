@@ -14,7 +14,8 @@ package xsbti
 import java.io.File
 import java.util
 
-import xsbti.api.{ DependencyContext, ClassLike }
+import xsbti.AnalysisCallback.PickleData
+import xsbti.api.{ClassLike, DependencyContext}
 
 import scala.collection.mutable.ArrayBuffer
 
@@ -42,7 +43,7 @@ class TestCallback extends AnalysisCallback {
 
   def classDependency(
       onClassName: String,
-      sourceClassName: String,
+                      sourceClassName: String,
       context: DependencyContext
   ): Unit = {
     if (onClassName != sourceClassName)
@@ -51,9 +52,9 @@ class TestCallback extends AnalysisCallback {
   }
   def binaryDependency(
       onBinary: File,
-      onBinaryClassName: String,
-      fromClassName: String,
-      fromSourceFile: File,
+                       onBinaryClassName: String,
+                       fromClassName: String,
+                       fromSourceFile: File,
       context: DependencyContext
   ): Unit = {
     binaryDependencies += ((onBinary, onBinaryClassName, fromClassName, context))
@@ -61,8 +62,8 @@ class TestCallback extends AnalysisCallback {
   }
   def generatedNonLocalClass(
       sourceFile: File,
-      classFile: File,
-      binaryClassName: String,
+                             classFile: File,
+                             binaryClassName: String,
       srcClassName: String
   ): Unit = {
     productClassesToSources += ((classFile, sourceFile))
@@ -83,15 +84,17 @@ class TestCallback extends AnalysisCallback {
     ()
   }
 
+  override def inCompilation(file: File): Boolean = true
+
   def mainClass(source: File, className: String): Unit = ()
 
   override def enabled(): Boolean = true
 
   def problem(
       category: String,
-      pos: xsbti.Position,
-      message: String,
-      severity: xsbti.Severity,
+              pos: xsbti.Position,
+              message: String,
+              severity: xsbti.Severity,
       reported: Boolean
   ): Unit = ()
 
@@ -99,13 +102,19 @@ class TestCallback extends AnalysisCallback {
 
   override def apiPhaseCompleted(): Unit = {}
 
+  override def processPickleData(pd: Array[PickleData]): Unit = {}
+
   override def classesInOutputJar(): util.Set[String] = java.util.Collections.emptySet()
+
+  override def isCanceled: Boolean = false
+
+  override def advancePhase(prev: String, next: String): Unit = {}
 }
 
 object TestCallback {
   case class ExtractedClassDependencies(
       memberRef: Map[String, Set[String]],
-      inheritance: Map[String, Set[String]],
+                                        inheritance: Map[String, Set[String]],
       localInheritance: Map[String, Set[String]]
   )
   object ExtractedClassDependencies {
@@ -116,7 +125,7 @@ object TestCallback {
     ): ExtractedClassDependencies = {
       ExtractedClassDependencies(
         pairsToMultiMap(memberRefPairs),
-        pairsToMultiMap(inheritancePairs),
+                                 pairsToMultiMap(inheritancePairs),
         pairsToMultiMap(localInheritancePairs)
       )
     }

@@ -13,8 +13,8 @@ package sbt.internal.inc.text
 
 import java.io.File
 
+import sbt.internal.inc
 import sbt.internal.inc.UsedName
-import xsbti.UseScope
 import xsbti.compile.analysis.Stamp
 
 case class Mapper[V](read: String => V, write: V => String)
@@ -26,11 +26,13 @@ object Mapper {
   val forStamp: ContextAwareMapper[File, Stamp] =
     ContextAwareMapper((_, v) => sbt.internal.inc.Stamp.fromString(v), (_, s) => s.toString)
   val forUsedName: Mapper[UsedName] = {
-    val enumSetSerializer = EnumSetSerializer(UseScope.values())
-    def serialize(usedName: UsedName): String =
-      s"${enumSetSerializer.serialize(usedName.scopes)}${usedName.name}"
+    val OffsetInAscii = '!'.toInt
 
-    def deserialize(s: String) = UsedName(s.tail, enumSetSerializer.deserialize(s.head))
+    def serialize(usedName: UsedName): String =
+      s"${(usedName.scopes.mask.toInt + OffsetInAscii).toChar}${usedName.name}"
+
+    def deserialize(s: String) =
+      UsedName(s.tail, new inc.UsedName.UseScopeSet((s.head - OffsetInAscii).toByte))
 
     Mapper(deserialize, serialize)
   }

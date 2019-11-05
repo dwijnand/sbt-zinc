@@ -18,9 +18,8 @@ import DependencyContext._
 
 import scala.tools.nsc.io.{ PlainFile, ZipArchive }
 import scala.tools.nsc.Phase
-
-import java.util.{ HashSet => JavaSet }
-import java.util.{ HashMap => JavaMap }
+import java.util.{Optional, HashMap => JavaMap, HashSet => JavaSet}
+import scala.collection.JavaConverters._
 
 object Dependency {
   def name = "xsbt-dependency"
@@ -51,9 +50,15 @@ final class Dependency(val global: CallbackGlobal) extends LocateClassFile with 
       val stop = System.currentTimeMillis
       debuglog("Dependency phase took : " + ((stop - start) / 1000.0) + " s")
     }
+    // TODO In 2.13, shouldSkipThisPhaseForJava should be overridden instead of cancelled
+    /* override def shouldSkipThisPhaseForJava = !global.pickleJava */
+    override def cancelled(unit: CompilationUnit) = {
+      if (Thread.interrupted()) reporter.cancelled = true
+      reporter.cancelled || unit.isJava && !global.pickleJava
+    }
 
     def apply(unit: CompilationUnit): Unit = {
-      if (!unit.isJava) {
+      if (!unit.isJava || global.pickleJava) {
         // Process dependencies if name hashing is enabled, fail otherwise
         val dependencyProcessor = new DependencyProcessor(unit)
         val dependencyTraverser = new DependencyTraverser(dependencyProcessor)
@@ -118,7 +123,7 @@ final class Dependency(val global: CallbackGlobal) extends LocateClassFile with 
         callback.binaryDependency(file, binaryClassName, fromClassName, sourceFile, context)
 
       import scala.tools.nsc.io.AbstractFile
-      def processExternalDependency(binaryClassName: String, at: AbstractFile): Unit = {
+      def processExternalDependency(binaryClassName: String, at: AbstractFile) = {
         at match {
           case zipEntry: ZipArchive#Entry =>
             // The dependency comes from a JAR
@@ -131,19 +136,17 @@ final class Dependency(val global: CallbackGlobal) extends LocateClassFile with 
             // The dependency comes from a class file
             binaryDependency(pf.file, binaryClassName)
           case _ =>
-          // On Scala 2.10 you get Internal error: <none> comes from unknown origin null
-          // if you uncomment the following:
-
-          // reporter.error(
-          //   NoPosition,
-          //   s"Internal error: ${binaryClassName} comes from unknown origin ${at}"
-          // )
+            reporter.error(
+              NoPosition,
+              s"Internal error: ${binaryClassName} comes from unknown origin ${at}"
+            )
         }
       }
 
       val targetSymbol = dep.to
       val onSource = targetSymbol.sourceFile
-      if (onSource == null) {
+      // onSource will be null for symbols resolved to class jars, but not for symbols resolved to pickle sigs
+      if ((onSource eq null) || (onSource.file eq null) || !callback.inCompilation(onSource.file)) {
         // Ignore packages right away as they don't map to a class file/jar
         if (targetSymbol.hasFlag(scala.tools.nsc.symtab.Flags.PACKAGE)) ()
         // Ignore `Any` which by default has no `associatedFile`
@@ -407,8 +410,7 @@ final class Dependency(val global: CallbackGlobal) extends LocateClassFile with 
 
         debuglog(
           "Parent types for " + tree.symbol + " (self: " + self.tpt.tpe + "): " + inheritanceTypes + " with symbols " + inheritanceSymbols
-            .map(_.fullName)
-        )
+            .map(_.fullName))
 
         inheritanceSymbols.foreach { symbol =>
           addInheritanceDependency(symbol)

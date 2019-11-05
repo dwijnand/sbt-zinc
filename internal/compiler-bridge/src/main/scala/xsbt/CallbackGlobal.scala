@@ -27,6 +27,7 @@ sealed abstract class CallbackGlobal(
     output: Output
 ) extends Global(settings, reporter) {
 
+  lazy val pickleJava = Compat.pickleJava(this)
   def callback: AnalysisCallback
   def findAssociatedFile(name: String): Option[(AbstractFile, Boolean)]
 
@@ -81,6 +82,14 @@ sealed class ZincCompiler(settings: Settings, dreporter: DelegatingReporter, out
       compileProgress.startUnit(phase.name, unit.source.path)
     override def progress(current: Int, total: Int): Unit =
       if (!compileProgress.advance(current, total)) cancel else ()
+
+    override def advancePhase(): Unit = {
+      // Tunnel cancellation.
+      if(callback.isCanceled)
+        dreporter.cancelled = true
+      callback.advancePhase(phase.name, phase.next.name)
+      super.advancePhase()
+    }
   }
 
   object dummy // temporary fix for #4426

@@ -66,13 +66,11 @@ final class HashAPI private (
   def this(includePrivate: Boolean, includeParamNames: Boolean) {
     // in the old logic we used to always include definitions hence
     // includeDefinitions=true
-    this(
-      includePrivate,
-      includeParamNames,
-      includeDefinitions = true,
-      includeSealedChildren = true,
-      includeTraitBreakers = false
-    )
+    this(includePrivate,
+         includeParamNames,
+         includeDefinitions = true,
+         includeSealedChildren = true,
+         includeTraitBreakers = false)
   }
 
   import scala.collection.mutable
@@ -237,7 +235,7 @@ final class HashAPI private (
     hashTypeParameters(c.typeParameters)
     hashType(c.selfType)
     if (includeSealedChildren)
-      hashTypes(c.childrenOfSealedClass, includeDefinitions)
+      hashTypes(c.childrenOfSealedClass, includeDefinitions, ordered = false)
 
     val isTrait = c.definitionType() == DefinitionType.Trait
     hashStructure(c.structure, includeDefinitions, isTrait)
@@ -327,8 +325,12 @@ final class HashAPI private (
     hashString(arg.value)
   }
 
-  def hashTypes(ts: Array[Type], includeDefinitions: Boolean = true) =
-    hashArray(ts, (t: Type) => hashType(t, includeDefinitions))
+  def hashTypes(ts: Array[Type], includeDefinitions: Boolean = true, ordered: Boolean = true) =
+    if(ordered)
+      hashArray(ts, (t: Type) => hashType(t, includeDefinitions))
+    else
+      hashSymmetric(ts, (t: Type) => hashType(t, includeDefinitions))
+
   def hashType(t: Type, includeDefinitions: Boolean = true): Unit =
     t match {
       case s: Structure     => hashStructure(s, includeDefinitions, false)

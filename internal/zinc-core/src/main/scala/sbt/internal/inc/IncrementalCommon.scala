@@ -18,15 +18,28 @@ import java.io.File
 import sbt.util.Logger
 import xsbt.api.APIUtil
 import xsbti.api.AnalyzedClass
-import xsbti.compile.{
-  DependencyChanges,
-  IncOptions,
-  Output,
-  ClassFileManager => XClassFileManager
-}
-import xsbti.compile.analysis.{ ReadStamps, Stamp => XStamp }
+import xsbti.compile.{CompileAnalysis, DependencyChanges, ExternalHooks, IncOptions, Output, ClassFileManager => XClassFileManager}
+import xsbti.compile.analysis.{ReadStamps, Stamp => XStamp}
 
 import scala.annotation.tailrec
+
+case class CompileCycleResults(continue: Boolean, nextInvalidations: Set[String], analysis: Analysis)
+object CompileCycleResults {
+  def empty = CompileCycleResults(false, Set.empty, Analysis.empty)
+}
+trait CompileCycle {
+  def apply(sources: Set[File], changes: DependencyChanges, process: ProcessAnalysis): CompileCycleResults
+}
+sealed abstract class ProcessAnalysis(classFileManager: XClassFileManager) {
+  // Merge latest analysis as of pickling into pruned previous analysis, compute invalidations and decide whether we need another cycle.
+  def mergeAndInvalidate(analysis: Analysis, completingCycle: Boolean): CompileCycleResults
+  // Merge latest analysis as of analyzer into pruned previous analysis and inform file manager.
+  def completeCycle(latestResults: Option[CompileCycleResults], analysis: Analysis): CompileCycleResults
+  protected def recordGeneratedAnalysis(analysis: Analysis): Unit =
+    classFileManager.generated(analysis.relations.allProducts.toArray)
+  def previousAnalysisPruned: Analysis
+  def isKnownFinal: Boolean
+}
 
 /**
  * Defines the core logic to compile incrementally and apply the class invalidation after
@@ -45,6 +58,28 @@ private[inc] abstract class IncrementalCommon(
     options: IncOptions,
     profiler: RunProfiler
 ) extends InvalidationProfilerUtils {
+
+  val analysisPeek: (Int, Option[Analysis]) => Unit = Hooks.getAnalysisPeek(options.externalHooks())
+  val haveSourceSource = Hooks.sourceSource(options.externalHooks()).available()
+
+
+  /** Tell if given class names comes from a Scala source file or not by inspecting relations. */
+  def comesFromSourceCompiledWithScala(previous: Relations,
+                                       current: Option[Relations] = None
+                          )(className: String): Boolean = {
+    Incremental.onlyPickleJava(options) || {
+      val previousSourcesWithClassName = previous.classes.reverse(className)
+      val newSourcesWithClassName = current.map(_.classes.reverse(className)).getOrElse(Set.empty)
+      if (previousSourcesWithClassName.isEmpty && newSourcesWithClassName.isEmpty)
+        sys.error(s"Fatal Zinc error: no entry for class $className in classes relation.")
+      else {
+        // Makes sure that the dependency doesn't possibly come from Java
+        previousSourcesWithClassName.forall(src => APIUtil.isScalaSourceName(src.getName)) &&
+          newSourcesWithClassName.forall(src => APIUtil.isScalaSourceName(src.getName))
+      }
+    }
+  }
+
   // Work around bugs in classpath handling such as the "currently" problematic -javabootclasspath
   private[this] def enableShallowLookup: Boolean =
     java.lang.Boolean.getBoolean("xsbt.skip.cp.lookup")
@@ -69,22 +104,30 @@ private[inc] abstract class IncrementalCommon(
    * @param lookup The lookup instance to query classpath and analysis information.
    * @param previous The last analysis file known of this project.
    * @param doCompile A function that compiles a project and returns an analysis file.
-   * @param classfileManager The manager that takes care of class files in compilation.
+   * @param classFileManager The manager that takes care of class files in compilation.
    * @param cycleNum The counter of incremental compiler cycles.
    * @return A fresh analysis file after all the incremental compiles have been run.
    */
   @tailrec final def cycle(
-      invalidatedClasses: Set[String],
-      initialChangedSources: Set[File],
-      allSources: Set[File],
-      binaryChanges: DependencyChanges,
-      lookup: ExternalLookup,
-      previous: Analysis,
-      doCompile: (Set[File], DependencyChanges) => Analysis,
-      classfileManager: XClassFileManager,
-      cycleNum: Int
+                            invalidatedClasses: Set[String],
+                            initialChangedSources: Set[File],
+                            allSources: Set[File],
+                            invalidateAllThreshold: Int,
+                            binaryChanges: DependencyChanges,
+                            lookup: ExternalLookup,
+                            previous: Analysis,
+                            doCompile: CompileCycle,
+                            classFileManager: XClassFileManager,
+                            cycleNum: Int,
+                            allJavaSources: Set[File]
   ): Analysis = {
-    if (invalidatedClasses.isEmpty && initialChangedSources.isEmpty) previous
+
+    analysisPeek(cycleNum, Some(previous))
+
+    // This should only be true after a compilation cycle has completed with continue=false; should never
+    // even get here if they were empty initially.
+    if (invalidatedClasses.isEmpty && initialChangedSources.isEmpty)
+      previous
     else {
       // Compute all the invalidated classes by aggregating invalidated package objects
       val invalidatedByPackageObjects =
@@ -93,57 +136,95 @@ private[inc] abstract class IncrementalCommon(
 
       // Computes which source files are mapped to the invalidated classes and recompile them
       val invalidatedSources =
-        mapInvalidationsToSources(classesToRecompile, initialChangedSources, allSources, previous)
-      val current =
-        recompileClasses(invalidatedSources, binaryChanges, previous, doCompile, classfileManager)
+        mapInvalidationsToSources(classesToRecompile, initialChangedSources, allSources, invalidateAllThreshold, previous)
 
-      // Return immediate analysis as all sources have been recompiled
-      if (invalidatedSources == allSources) current
-      else {
-        val recompiledClasses: Set[String] = {
-          // Represents classes detected as changed externally and internally (by a previous cycle)
-          classesToRecompile ++
-            // Maps the changed sources by the user to class names we can count as invalidated
-            initialChangedSources.flatMap(previous.relations.classNames) ++
-            initialChangedSources.flatMap(current.relations.classNames)
+      val pruned: Analysis =
+        IncrementalCommon.pruneClassFilesOfInvalidations(invalidatedSources, previous, classFileManager)
+      debug("********* Pruned: \n" + pruned.relations + "\n*********")
+
+      val processAnalysis = new ProcessAnalysis(classFileManager) {
+
+        override val isKnownFinal = allSources.subsetOf(invalidatedSources)
+
+        def mergeAndInvalidate(partialAnalysis: Analysis, completingCycle: Boolean) = {
+
+          val analysis = if (isKnownFinal) partialAnalysis else pruned ++ partialAnalysis
+          val recompiledClasses: Set[String] = {
+            // Represents classes detected as changed externally and internally (by a previous cycle)
+            classesToRecompile ++
+              // Maps the changed sources by the user to class names we can count as invalidated
+              initialChangedSources.flatMap(previous.relations.classNames) ++
+              initialChangedSources.flatMap(analysis.relations.classNames)
+          }
+
+          val newApiChanges =
+            detectAPIChanges(recompiledClasses, previous.apis.internalAPI, analysis.apis.internalAPI)
+          debug("\nChanges:\n" + newApiChanges)
+
+          val nextInvalidations = if (isKnownFinal) Set.empty[String] else
+            invalidateAfterInternalCompilation(
+              analysis.relations,
+              newApiChanges,
+              recompiledClasses,
+              cycleNum >= options.transitiveStep,
+              comesFromSourceCompiledWithScala(previous.relations, Some(analysis.relations)) _
+            )
+
+          // No matter what shouldDoIncrementalCompilation returns, we are not in fact going to
+          // continue if there are no invalidations.  Assume the result is somehow interesting for
+          // profiling... or a bug.
+          val continuePerLookup = if (isKnownFinal) false else lookup.shouldDoIncrementalCompilation(nextInvalidations, analysis)
+          val continue = continuePerLookup && nextInvalidations.nonEmpty
+
+          // If we're completing the cycle, then mergeAndInvalidate has already been called
+          if (!completingCycle)
+            profiler.registerCycle(
+              invalidatedClasses,
+              invalidatedByPackageObjects,
+              initialChangedSources,
+              invalidatedSources,
+              recompiledClasses,
+              newApiChanges,
+              nextInvalidations,
+              continuePerLookup
+            )
+
+          CompileCycleResults(continue, nextInvalidations, analysis)
         }
 
-        val newApiChanges =
-          detectAPIChanges(recompiledClasses, previous.apis.internalAPI, current.apis.internalAPI)
-        debug("\nChanges:\n" + newApiChanges)
-        val nextInvalidations = invalidateAfterInternalCompilation(
-          current.relations,
-          newApiChanges,
-          recompiledClasses,
-          cycleNum >= options.transitiveStep,
-          IncrementalCommon.comesFromScalaSource(previous.relations, Some(current.relations))
-        )
+        def completeCycle(prev: Option[CompileCycleResults], partialAnalysis: Analysis) = {
+          /* This is required for both scala compilation and forked java compilation, despite
+             *  being redundant for the most common Java compilation (using the local compiler).
+             *  Use previous invalidations as of pickling if they exist. */
+          val analysis = pruned ++ partialAnalysis
+          val results = prev.fold(mergeAndInvalidate(analysis, true))(_.copy(analysis = analysis))
+          recordGeneratedAnalysis(analysis)
+          results
+        }
 
-        val continue = lookup.shouldDoIncrementalCompilation(nextInvalidations, current)
-
-        profiler.registerCycle(
-          invalidatedClasses,
-          invalidatedByPackageObjects,
-          initialChangedSources,
-          invalidatedSources,
-          recompiledClasses,
-          newApiChanges,
-          nextInvalidations,
-          continue
-        )
-
-        cycle(
-          if (continue) nextInvalidations else Set.empty,
-          Set.empty,
-          allSources,
-          IncrementalCommon.emptyChanges,
-          lookup,
-          current,
-          doCompile,
-          classfileManager,
-          cycleNum + 1
-        )
+        override val previousAnalysisPruned = pruned
       }
+
+      // Actual compilation takes place here
+      log.debug(s"Compilation cycle $cycleNum")
+      val CompileCycleResults(continue, nextInvalidations, merged) = doCompile(invalidatedSources, binaryChanges, processAnalysis)
+
+      // Unfortunately, we need to invalidate all java files at every cycle iteration for mixed compilations
+      val nextChangedSources = if (continue && nextInvalidations.nonEmpty) allJavaSources else Set.empty[File]
+
+      cycle(
+        if (continue) nextInvalidations else Set.empty,
+        nextChangedSources,
+        allSources,
+        invalidateAllThreshold,
+        IncrementalCommon.emptyChanges,
+        lookup,
+        merged,
+        doCompile,
+        classFileManager,
+        cycleNum + 1,
+        allJavaSources
+      )
     }
   }
 
@@ -151,56 +232,36 @@ private[inc] abstract class IncrementalCommon(
       invalidatedClasses: Set[String],
       aggregateSources: Set[File],
       allSources: Set[File],
+      invalidateAllThreshold: Int,
       previous: Analysis
   ): Set[File] = {
     def expand(invalidated: Set[File]): Set[File] = {
       val recompileAllFraction = options.recompileAllFraction
-      if (invalidated.size <= allSources.size * recompileAllFraction) invalidated
+      if (invalidated.size <= invalidateAllThreshold) invalidated
       else {
         log.debug(
-          s"Recompiling all sources: number of invalidated sources > ${recompileAllFraction * 100.00}% of all sources"
-        )
+          s"Recompiling all sources: fraction of scala invalidated sources > ${options.recompileAllFraction}")
         allSources ++ invalidated // Union because `all` doesn't contain removed sources
       }
     }
-
-    expand(invalidatedClasses.flatMap(previous.relations.definesClass) ++ aggregateSources)
-  }
-
-  def recompileClasses(
-      sources: Set[File],
-      binaryChanges: DependencyChanges,
-      previous: Analysis,
-      doCompile: (Set[File], DependencyChanges) => Analysis,
-      classfileManager: XClassFileManager
-  ): Analysis = {
-    val pruned =
-      IncrementalCommon.pruneClassFilesOfInvalidations(sources, previous, classfileManager)
-    debug("********* Pruned: \n" + pruned.relations + "\n*********")
-    val fresh = doCompile(sources, binaryChanges)
-    debug("********* Fresh: \n" + fresh.relations + "\n*********")
-
-    /* This is required for both scala compilation and forked java compilation, despite
-     *  being redundant for the most common Java compilation (using the local compiler). */
-    classfileManager.generated(fresh.relations.allProducts.toArray)
-
-    val merged = pruned ++ fresh
-    debug("********* Merged: \n" + merged.relations + "\n*********")
-    merged
+    val invalidatedSources = invalidatedClasses.flatMap(previous.relations.definesClass) ++ aggregateSources
+    val extraPackageObjectSources =
+      IncrementalCommon.extraPackageObjectSourcesToInvalidate(previous, invalidatedSources, log)
+    expand(invalidatedSources ++ extraPackageObjectSources)
   }
 
   /**
-   * Detects the API changes of `recompiledClasses`.
+   * Detects the API changes of `classes`.
    *
-   * @param recompiledClasses The list of classes that were recompiled in this round.
+   * @param classes The list of classes to investigate.
    * @param oldAPI A function that returns the previous class associated with a given class name.
    * @param newAPI A function that returns the current class associated with a given class name.
-   * @return A list of API changes of the given two analyzed classes.
+   * @return API changes in these classes
    */
   def detectAPIChanges(
-      recompiledClasses: collection.Set[String],
-      oldAPI: String => AnalyzedClass,
-      newAPI: String => AnalyzedClass
+                        classes: collection.Set[String],
+                        oldAPI: String => AnalyzedClass,
+                        newAPI: String => AnalyzedClass
   ): APIChanges = {
     def classDiff(className: String, a: AnalyzedClass, b: AnalyzedClass): Option[APIChange] = {
       if (a.compilationTimestamp() == b.compilationTimestamp() && (a.apiHash == b.apiHash)) None
@@ -212,7 +273,7 @@ private[inc] abstract class IncrementalCommon(
       }
     }
 
-    val apiChanges = recompiledClasses.flatMap(name => classDiff(name, oldAPI(name), newAPI(name)))
+    val apiChanges = classes.flatMap(name => classDiff(name, oldAPI(name), newAPI(name)))
     if (Incremental.apiDebug(options) && apiChanges.nonEmpty) {
       logApiChanges(apiChanges, oldAPI, newAPI)
     }
@@ -245,11 +306,15 @@ private[inc] abstract class IncrementalCommon(
       previousAnalysis: Analysis,
       stamps: ReadStamps,
       lookup: Lookup,
+      hooks: ExternalHooks,
       output: Output
   )(implicit equivS: Equiv[XStamp]): InitialChanges = {
     import IncrementalCommon.{ isBinaryModified, findExternalAnalyzedClass }
     val previous = previousAnalysis.stamps
     val previousRelations = previousAnalysis.relations
+    val quickAPI: (File, String) => Option[AnalyzedClass] = Hooks.quickAPI(hooks)
+    val projectJarChanges: Int = Hooks.changedExternalJars(hooks)
+    val ignoreDiffsInJarPathFor: String => Boolean = Hooks.getIgnoreDiffInJar(hooks)
 
     val sourceChanges = lookup.changedSources(previousAnalysis).getOrElse {
       val previousSources = previous.allSources.toSet
@@ -272,14 +337,17 @@ private[inc] abstract class IncrementalCommon(
 
     val changedBinaries: Set[File] = lookup.changedBinaries(previousAnalysis).getOrElse {
       val detectChange =
-        isBinaryModified(enableShallowLookup, lookup, previous, stamps, previousRelations, log)
+        isBinaryModified(enableShallowLookup, lookup, previous, stamps, previousRelations, ignoreDiffsInJarPathFor, log)
       previous.allBinaries.filter(detectChange).toSet
     }
 
-    val externalApiChanges: APIChanges = {
+    val previousAPIs = previousAnalysis.apis
+    val externalApiChanges: APIChanges =
+      if(projectJarChanges==0 && !previousAPIs.allExternals.isEmpty)
+        new APIChanges(Nil)
+      else {
       val incrementalExternalChanges = {
-        val previousAPIs = previousAnalysis.apis
-        val externalFinder = findExternalAnalyzedClass(lookup) _
+        val externalFinder = findExternalAnalyzedClass(lookup, quickAPI) _
         detectAPIChanges(previousAPIs.allExternals, previousAPIs.externalAPI, externalFinder)
       }
 
@@ -349,10 +417,8 @@ private[inc] abstract class IncrementalCommon(
    * Because the intermediate steps do not pull in cycles, this result includes the initial classes
    * if they are part of a cycle containing newly invalidated classes.
    */
-  def transitiveDependencies(
-      dependsOnClass: String => Set[String],
-      initial: Set[String]
-  ): Set[String] = {
+  def transitiveDependencies(dependsOnClass: String => Set[String],
+                             initial: Set[String]): Set[String] = {
     val transitiveWithInitial = IncrementalCommon.transitiveDeps(initial, log)(dependsOnClass)
     val transitivePartial =
       includeTransitiveInitialInvalidations(initial, transitiveWithInitial, dependsOnClass)
@@ -361,7 +427,7 @@ private[inc] abstract class IncrementalCommon(
   }
 
   /** Invalidates classes and sources based on initially detected 'changes' to the sources, products, and dependencies.*/
-  def invalidateInitial(previous: Relations, changes: InitialChanges): (Set[String], Set[File]) = {
+  def invalidateInitial(previous: Relations, changes: InitialChanges): (Incremental.CompilationType, Set[String], Set[File]) = {
     def classNames(srcs: Set[File]): Set[String] = srcs.flatMap(previous.classNames)
     def toImmutableSet(srcs: java.util.Set[File]): Set[File] = {
       import scala.collection.JavaConverters.asScalaIteratorConverter
@@ -372,7 +438,7 @@ private[inc] abstract class IncrementalCommon(
     val removedSrcs = toImmutableSet(srcChanges.getRemoved)
     val modifiedSrcs = toImmutableSet(srcChanges.getChanged)
     val addedSrcs = toImmutableSet(srcChanges.getAdded)
-    IncrementalCommon.checkAbsolute(addedSrcs)
+    if(!haveSourceSource) IncrementalCommon.checkAbsolute(addedSrcs)
 
     val removedClasses = classNames(removedSrcs)
     val dependentOnRemovedClasses = removedClasses.flatMap(previous.memberRef.internal.reverse)
@@ -383,20 +449,22 @@ private[inc] abstract class IncrementalCommon(
     val byBinaryDep = changes.binaryDeps.flatMap(previous.usesLibrary)
     val byExtSrcDep = {
       // Invalidate changes
-      val isScalaSource = IncrementalCommon.comesFromScalaSource(previous) _
       changes.external.apiChanges.iterator.flatMap { externalAPIChange =>
-        invalidateClassesExternally(previous, externalAPIChange, isScalaSource)
+        invalidateClassesExternally(previous, externalAPIChange, comesFromSourceCompiledWithScala(previous) _)
       }.toSet
     }
 
     val allInvalidatedClasses = invalidatedClasses ++ byExtSrcDep
     val allInvalidatedSourcefiles = addedSrcs ++ modifiedSrcs ++ byProduct ++ byBinaryDep
 
-    if (previous.allSources.isEmpty)
+    val ct = if (previous.allSources.isEmpty) {
       log.debug("Full compilation, no sources in previous analysis.")
-    else if (allInvalidatedClasses.isEmpty && allInvalidatedSourcefiles.isEmpty)
+      Incremental.Full
+    }
+    else if (allInvalidatedClasses.isEmpty && allInvalidatedSourcefiles.isEmpty) {
       log.debug("No changes")
-    else
+      Incremental.NoChange
+    }else {
       log.debug(
         "\nInitial source changes: \n\tremoved:" + removedSrcs + "\n\tadded: " + addedSrcs + "\n\tmodified: " + modifiedSrcs +
           "\nInvalidated products: " + changes.removedProducts +
@@ -408,19 +476,19 @@ private[inc] abstract class IncrementalCommon(
           "\n\tbinary dep: " + byBinaryDep +
           "\n\texternal source: " + byExtSrcDep
       )
+      Incremental.Partial
+    }
 
-    (allInvalidatedClasses, allInvalidatedSourcefiles)
+    (ct, allInvalidatedClasses, allInvalidatedSourcefiles)
   }
 
   /**
    * Invalidates inheritance dependencies, transitively.  Then, invalidates direct dependencies.  Finally, excludes initial dependencies not
    * included in a cycle with newly invalidated classes.
    */
-  def invalidateClasses(
-      previous: Relations,
-      changes: APIChanges,
-      isScalaClass: String => Boolean
-  ): Set[String] = {
+  def invalidateClasses(previous: Relations,
+                        changes: APIChanges,
+                        isScalaClass: String => Boolean): Set[String] = {
     includeTransitiveInitialInvalidations(
       changes.allModified.toSet,
       changes.apiChanges.flatMap(invalidateClassesInternally(previous, _, isScalaClass)).toSet,
@@ -459,8 +527,7 @@ private[inc] abstract class IncrementalCommon(
     val includedInitialInvalidations = newTransitiveInvalidations & previousInvalidations
 
     log.debug(
-      "Previously invalidated, but (transitively) depend on new invalidations:\n\t" + includedInitialInvalidations
-    )
+      "Previously invalidated, but (transitively) depend on new invalidations:\n\t" + includedInitialInvalidations)
     newInvalidations ++ includedInitialInvalidations
   }
 
@@ -576,22 +643,6 @@ private[inc] abstract class IncrementalCommon(
 
 object IncrementalCommon {
 
-  /** Tell if given class names comes from a Scala source file or not by inspecting relations. */
-  def comesFromScalaSource(
-      previous: Relations,
-      current: Option[Relations] = None
-  )(className: String): Boolean = {
-    val previousSourcesWithClassName = previous.classes.reverse(className)
-    val newSourcesWithClassName = current.map(_.classes.reverse(className)).getOrElse(Set.empty)
-    if (previousSourcesWithClassName.isEmpty && newSourcesWithClassName.isEmpty)
-      sys.error(s"Fatal Zinc error: no entry for class $className in classes relation.")
-    else {
-      // Makes sure that the dependency doesn't possibly come from Java
-      previousSourcesWithClassName.forall(src => APIUtil.isScalaSourceName(src.getName)) &&
-      newSourcesWithClassName.forall(src => APIUtil.isScalaSourceName(src.getName))
-    }
-  }
-
   /** Invalidate all classes that claim to produce the same class file as another class. */
   def invalidateNamesProducingSameClassFile(merged: Relations): Set[String] = {
     merged.srcProd.reverseMap.flatMap {
@@ -619,6 +670,7 @@ object IncrementalCommon {
       previousStamps: Stamps,
       currentStamps: ReadStamps,
       previousRelations: Relations,
+      ignoreDiffsInJarPathFor: String => Boolean,
       log: Logger
   )(implicit equivS: Equiv[XStamp]): File => Boolean = { (binaryFile: File) =>
     {
@@ -637,7 +689,10 @@ object IncrementalCommon {
         def compareOriginClassFile(className: String, classpathEntry: File): Boolean = {
           val resolved = Locate.resolve(classpathEntry, className)
           val resolvedCanonical = resolved.getCanonicalPath
-          if (resolvedCanonical != binaryFile.getCanonicalPath)
+          val prevCanonical = binaryFile.getCanonicalPath
+          if(ignoreDiffsInJarPathFor(prevCanonical))
+            false
+          else if(resolvedCanonical != prevCanonical)
             invalidateBinary(s"${className} is now provided by ${resolvedCanonical}")
           else compareStamps(binaryFile, resolved)
         }
@@ -668,18 +723,25 @@ object IncrementalCommon {
   }
 
   /**
-   * Find the external `AnalyzedClass` (from another analysis) given a class name.
+   * Find the external [[AnalyzedClass]] (from another analysis) given a class name.
    *
    * @param lookup An instance that provides access to classpath or external project queries.
-   * @return The `AnalyzedClass` associated with the given class name.
+   * @return The [[AnalyzedClass]] associated with the given class name.
    */
-  def findExternalAnalyzedClass(lookup: Lookup)(binaryClassName: String): AnalyzedClass = {
-    val maybeInternalAPI = for {
-      analysis0 <- lookup.lookupAnalysis(binaryClassName)
-      analysis = analysis0 match { case a: Analysis => a }
-      className <- analysis.relations.productClassName.reverse(binaryClassName).headOption
-    } yield analysis.apis.internalAPI(className)
-    maybeInternalAPI.getOrElse(APIs.emptyAnalyzedClass)
+  def findExternalAnalyzedClass(lookup: Lookup, quickAPI: (File, String) => Option[AnalyzedClass])(binaryClassName: String): AnalyzedClass = {
+    quickAPI(null, binaryClassName) match {
+      case Some(api) if !api.provenance().isEmpty => api
+      case None => APIs.emptyAnalyzedClass
+      case _ =>
+        val maybeInternalAPI = for {
+          analysis0 <- lookup.lookupAnalysis (binaryClassName)
+          analysis = analysis0 match {
+            case a: Analysis => a
+          }
+          className <- analysis.relations.productClassName.reverse (binaryClassName).headOption
+        } yield analysis.apis.internalAPI (className)
+        maybeInternalAPI.getOrElse (APIs.emptyAnalyzedClass)
+    }
   }
 
   def transitiveDeps[T](
@@ -751,5 +813,39 @@ object IncrementalCommon {
   ): Analysis = {
     classfileManager.delete(invalidatedSources.flatMap(previous.relations.products).toArray)
     previous -- invalidatedSources
+  }
+
+  /**
+   * Finds source files of package objects for which sources of package object's dependencies will be recompiled.
+   * Sometimes it's needed even though these dependencies themselves were not marked directly as invalidated but e.g.
+   * their inner classes were.
+   */
+  private def extraPackageObjectSourcesToInvalidate(previous: Analysis,
+                                                    invalidatedSources: Set[File],
+                                                    log: Logger): Set[File] = {
+    if (invalidatedSources.isEmpty) Set.empty
+    else {
+      val extraPkgObjSourcesToInvalidate: Set[File] = (for {
+        (source, classesInSource) <- previous.relations.classes.forwardMap
+        pkgObj <- classesInSource if pkgObj.endsWith(".package")
+        pkgObjSourceAlreadyInvalidated = invalidatedSources.contains(source)
+        if !pkgObjSourceAlreadyInvalidated && hasSourceOfInternalDependencyInvalidated(
+          pkgObj,
+          previous,
+          invalidatedSources)
+      } yield source)(collection.breakOut)
+      log.debug(s"Additional invalidated package objects sources: $extraPkgObjSourcesToInvalidate")
+      extraPkgObjSourcesToInvalidate
+    }
+  }
+
+  private def hasSourceOfInternalDependencyInvalidated(pkgObj: String,
+                                                       previous: Analysis,
+                                                       invalidatedSources: Set[File]): Boolean = {
+    val dependencies = previous.relations.internalClassDeps(pkgObj)
+    dependencies.exists { dep =>
+      val depSources = previous.relations.definesClass(dep)
+      depSources.exists(invalidatedSources.contains)
+    }
   }
 }

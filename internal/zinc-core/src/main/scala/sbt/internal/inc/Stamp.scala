@@ -13,12 +13,13 @@ package sbt
 package internal
 package inc
 
-import java.io.{ File, IOException }
+import java.io.{File, IOException}
 import java.util
 import java.util.Optional
 
-import sbt.io.{ Hash => IOHash, IO }
-import xsbti.compile.analysis.{ ReadStamps, Stamp => XStamp }
+import sbt.io.{IO, Hash => IOHash}
+import xsbti.compile.SourceSource
+import xsbti.compile.analysis.{ReadStamps, Stamp => XStamp}
 
 import scala.collection.immutable.TreeMap
 import scala.util.matching.Regex
@@ -46,7 +47,7 @@ trait Stamps extends ReadStamps {
   def ++(o: Stamps): Stamps
   def groupBy[K](
       prod: Map[K, File => Boolean],
-      sourcesGrouping: File => K,
+                 sourcesGrouping: File => K,
       bin: Map[K, File => Boolean]
   ): Map[K, Stamps]
 }
@@ -70,11 +71,13 @@ final class Hash private (val hexHash: String) extends StampBase {
   override def writeStamp: String = s"hash($hexHash)"
   override def getValueId: Int = hexHash.hashCode()
   override def getHash: Optional[String] = Optional.of(hexHash)
-  override def getLastModified: Optional[BoxedLong] = Optional.empty[BoxedLong]
 }
 
 private[sbt] object Hash {
   private val Pattern = """hash\(((?:[0-9a-fA-F][0-9a-fA-F])+)\)""".r
+
+  def ofString(s: String): Hash =
+    new Hash(IOHash toHex IOHash(s))
 
   def ofFile(f: File): Hash =
     new Hash(IOHash toHex IOHash(f)) // assume toHex returns a hex string
@@ -97,7 +100,6 @@ final class LastModified(val value: Long) extends StampBase {
   override def writeStamp: String = s"lastModified(${value})"
   override def getValueId: Int = (value ^ (value >>> 32)).toInt
   override def getHash: Optional[String] = Optional.empty[String]
-  override def getLastModified: Optional[BoxedLong] = Optional.of(value)
 }
 
 /** Defines an empty stamp. */
@@ -107,7 +109,6 @@ private[sbt] object EmptyStamp extends StampBase {
   override def writeStamp: String = Value
   override def getValueId: Int = System.identityHashCode(this)
   override def getHash: Optional[String] = Optional.empty[String]
-  override def getLastModified: Optional[BoxedLong] = Optional.empty[BoxedLong]
 }
 
 private[inc] object LastModified extends WithPattern {
@@ -149,6 +150,12 @@ object Stamper {
     catch { case _: IOException => EmptyStamp }
   }
 
+  def forHash(getSource: SourceSource): File => XStamp = {
+    if(getSource.available) {
+      val f = getSource.apply _
+      (toStamp: File) => tryStamp(Hash.ofString(f(toStamp.toPath)))
+    } else forLastModified
+  }
   val forHash: File => XStamp = (toStamp: File) => tryStamp(Hash.ofFile(toStamp))
   val forLastModified: File => XStamp = (toStamp: File) =>
     tryStamp(new LastModified(IO.getModifiedTimeOrZero(toStamp)))
@@ -168,7 +175,7 @@ object Stamps {
    */
   def initial(
       prodStamp: File => XStamp,
-      srcStamp: File => XStamp,
+              srcStamp: File => XStamp,
       binStamp: File => XStamp
   ): ReadStamps =
     new InitialStamps(prodStamp, srcStamp, binStamp)
@@ -180,7 +187,7 @@ object Stamps {
   }
   def apply(
       products: Map[File, XStamp],
-      sources: Map[File, XStamp],
+            sources: Map[File, XStamp],
       binaries: Map[File, XStamp]
   ): Stamps =
     new MStamps(products, sources, binaries)
@@ -190,7 +197,7 @@ object Stamps {
 
 private class MStamps(
     val products: Map[File, XStamp],
-    val sources: Map[File, XStamp],
+                      val sources: Map[File, XStamp],
     val binaries: Map[File, XStamp]
 ) extends Stamps {
 
@@ -223,7 +230,7 @@ private class MStamps(
 
   def groupBy[K](
       prod: Map[K, File => Boolean],
-      f: File => K,
+                 f: File => K,
       bin: Map[K, File => Boolean]
   ): Map[K, Stamps] = {
     val sourcesMap: Map[K, Map[File, XStamp]] = sources.groupBy(x => f(x._1))
@@ -252,14 +259,14 @@ private class MStamps(
   override def toString: String =
     "Stamps for: %d products, %d sources, %d binaries".format(
       products.size,
-      sources.size,
+                                                              sources.size,
       binaries.size
     )
 }
 
 private class InitialStamps(
     prodStamp: File => XStamp,
-    srcStamp: File => XStamp,
+                            srcStamp: File => XStamp,
     binStamp: File => XStamp
 ) extends ReadStamps {
   import collection.mutable.{ HashMap, Map }

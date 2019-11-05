@@ -1,12 +1,8 @@
 /*
  * Zinc - The incremental compiler for Scala.
- * Copyright Lightbend, Inc. and Mark Harrah
- *
- * Licensed under Apache License 2.0
- * (http://www.apache.org/licenses/LICENSE-2.0).
- *
- * See the NOTICE file distributed with this work for
- * additional information regarding copyright ownership.
+ * Copyright 2011 - 2017, Lightbend, Inc.
+ * Copyright 2008 - 2010, Mark Harrah
+ * This software is released under the terms written in LICENSE.
  */
 
 package sbt.internal.inc
@@ -28,7 +24,7 @@ trait Lookup extends ExternalLookup {
    */
   def changedClasspathHash: Option[Vector[FileHash]]
 
-  def analyses: Vector[CompileAnalysis]
+  protected def analyses: Vector[CompileAnalysis]
 
   /**
    * Lookup an element on the classpath corresponding to a given binary class name.
@@ -91,26 +87,22 @@ trait ExternalLookup extends ExternalHooks.Lookup {
    * Used to provide information from external tools into sbt (e.g. IDEs)
    * @return API changes
    */
-  def shouldDoIncrementalCompilation(
-      changedClasses: Set[String],
-      analysis: CompileAnalysis
-  ): Boolean
-  override def shouldDoIncrementalCompilation(
-      changedClasses: util.Set[String],
-      previousAnalysis: CompileAnalysis
-  ): Boolean = {
+  def shouldDoIncrementalCompilation(changedClasses: Set[String],
+                                     analysis: CompileAnalysis): Boolean
+  override def shouldDoIncrementalCompilation(changedClasses: util.Set[String],
+                                              previousAnalysis: CompileAnalysis): Boolean = {
     import scala.collection.JavaConverters._
     shouldDoIncrementalCompilation(changedClasses.iterator().asScala.toSet, previousAnalysis)
   }
+
+  override def hashClasspath(classpath: Array[File]): Optional[Array[FileHash]] = Optional.empty()
 }
 
 trait NoopExternalLookup extends ExternalLookup {
   override def changedSources(previous: CompileAnalysis): Option[Changes[File]] = None
   override def changedBinaries(previous: CompileAnalysis): Option[Set[File]] = None
   override def removedProducts(previous: CompileAnalysis): Option[Set[File]] = None
-  override def shouldDoIncrementalCompilation(
-      changedClasses: Set[String],
-      analysis: CompileAnalysis
-  ): Boolean = true
+  override def shouldDoIncrementalCompilation(changedClasses: Set[String],
+                                              analysis: CompileAnalysis): Boolean = true
   override def hashClasspath(classpath: Array[File]): Optional[Array[FileHash]] = Optional.empty()
 }
