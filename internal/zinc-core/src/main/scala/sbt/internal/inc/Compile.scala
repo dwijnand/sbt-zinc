@@ -109,6 +109,73 @@ object IncrementalCompile {
     }
   }
 
+  /*  Skeletal implementation of a `quickAPI` callback, making use of the `provenance` field composed of name.hash:
+
+      // Build from whatever you're using for for PerClasspathEntryLookup
+      private def analysisCache(name: String ): Option[CompileAnalysis] =  ???
+      // Populate this during analysis read-mapping
+      private val unchangedProvenances: Set[String] = ???
+      //
+      private val nameToAnalysis: Map[String, Path] = ???
+      private object ProvenanceExtractor {
+         // Extract name and hash from name of the jar file where a class was found by scalac
+         def unapply(file: File): Option[(String, String)] = ???
+      }
+
+      private val prevApis = prevAnalysis.asInstanceOf[Analysis].apis.external
+      private val unknown = Optional.of(APIs.emptyAnalyzedClass)
+      private val unavailable = Optional.empty[AnalyzedClass]
+      private val quickAPICache = new mutable.HashMap[(File, String), Optional[AnalyzedClass]]
+
+        private def quickAPI(fileWhereFound: File, fqcn: String): Optional[AnalyzedClass] =
+          quickAPICache.getOrElseUpdate((fileWhereFound, fqcn), {
+
+            def lookInUpstreamAnalysis(name: String): Option[AnalyzedClass] =
+              // This horror is cribbed from s.i.i.IncrementalCompile
+              for (analysis0 <- analysisCache(path);
+                   analysis = analysis0 match { case a: Analysis => a };
+                   sourceClassName <- analysis.relations.productClassName.reverse(fqcn).headOption;
+                   api <- analysis.apis.internal.get(sourceClassName)) yield api
+
+            fileWhereFound match {
+              // We have no idea where the fqcn might be found, so start by looking in our previous analysis.
+              case null =>
+                prevApis.get(fqcn) match {
+                  // If an api was stored with a provenance with an unchanged hash, we can return that api with confidence.
+                  case Some(api) if unchanged(api.provenance()) =>
+                    Optional.of(api)
+
+                  // We know about this API, but its hash has been updated.  Look for the analysis of the new classpath
+                  // entry. If we can't find the fqcn in the new location, then zinc will have to search for it.
+                  case Some(api) if !api.provenance().isEmpty =>
+                    val name = api.provenance().substring(0, api.provenance().lastIndexOf('.'))
+                    lookInUpstreamAnalysis(name).fold(unknown)(Optional.of)
+
+                  // We know nothing about this class.
+                  case _ =>
+                    unknown
+                }
+
+              // Class was found in our project, and we know where its analysis ought to live.  If we don't find the
+              // fqcn there, it's not going to be available anywhere, so we return definitively unavailable rather
+              // than unknown as we did above
+              case ProvenanceExtractor(hame, hash) =>
+                if (unchanged(hash))
+                  prevApis.get(fqcn).fold(unavailable)(Optional.of)
+                else
+                  lookInUpstreamAnalysis(name).fold(unavailable)(Optional.of)
+
+              // Either not on the classpath at all (which will eventually be a compilation error) or
+              // in some library outside of the project.
+              case _ =>
+                unavailable
+            }
+          }
+        )
+
+
+   */
+
   def getExternalAPI(hooks: ExternalHooks, lookup: Lookup): (File, String) => Option[AnalyzedClass] = {
     val quickAPI: (File, String) => Option[AnalyzedClass] = Hooks.quickAPI(hooks)
     (from: File, binaryClassName: String) => {
