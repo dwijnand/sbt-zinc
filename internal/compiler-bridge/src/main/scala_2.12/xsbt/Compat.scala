@@ -12,22 +12,14 @@
 package xsbt
 
 import java.io.PrintWriter
+import java.nio.file
+import java.nio.file.Path
 
+import xsbti.AnalysisCallback.PickleData
 import xsbti.compile.Output
 
-import scala.tools.nsc.Settings
-import scala.util.{Properties, Try}
-import java.nio.file
-
-import scala.collection.mutable
-import scala.tools.nsc.Global
-import xsbti.AnalysisCallback.PickleData
-
-import scala.tools.nsc.settings.MutableSettings
-import scala.tools.nsc.util.ShowPickled
-import java.nio.file.Path
 import scala.reflect.io.VirtualFile
-
+import scala.tools.nsc.{ Global, Settings }
 
 // Virtual file that can claim to have an underlying file.
 class PathBackedVirtualFile(p: Path) extends VirtualFile(p.toString, p.toString) {
@@ -42,7 +34,6 @@ object Compat {
   // IMain in 2.13 accepts ReplReporter
   def replReporter(settings: Settings, writer: PrintWriter) = writer
 
-
   def pickleJava[G <: Global](global: G): Boolean = false
 
   // Prepare pickle data for eventual storage, computing path within jar file from symbol ownership
@@ -50,6 +41,7 @@ object Compat {
   // This is almost verbatim copied from scala.tools.nsc.PipelineMain, except that actually writing to the jar file
   // is deferred to AnalysisCallback, after the final incremental compilation cycle.
   def picklePaths[G <: Global](run: G#Run): Iterable[PickleData] = Iterable.empty
+}
 
 /** Defines compatibility utils for [[ZincCompiler]]. */
 trait ZincGlobalCompat {

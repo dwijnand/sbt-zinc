@@ -38,7 +38,7 @@ import xsbti.AnalysisCallback.PickleData
 
 import scala.collection.JavaConverters._
 import xsbti.api.DependencyContext
-import xsbti.compile.analysis.{ ReadStamps, Stamp }
+import xsbti.compile.analysis.ReadStamps
 import JavaInterfaceUtil._
 import sbt.internal.inc.JarUtils.ClassInJar
 
@@ -51,14 +51,14 @@ object IncrementalCompile {
   /**
    * Runs the incremental compilation algorithm.
    *
-   * @param sources   The full set of input sources
-   * @param lookup    An instance of the `Lookup` that implements looking up both classpath elements
-   *                  and Analysis object instances by a binary class name.
-   * @param compile   The mechanism to run a single 'step' of compile, for ALL source files involved.
+   * @param sources The full set of input sources
+   * @param lookup An instance of the `Lookup` that implements looking up both classpath elements
+   *               and Analysis object instances by a binary class name.
+   * @param compile The mechanism to run a single 'step' of compile, for ALL source files involved.
    * @param previous0 The previous dependency Analysis (or an empty one).
-   * @param output    The configured output directory/directory mapping for source files.
-   * @param log       Where all log messages should go
-   * @param options   Incremental compiler options (like name hashing vs. not).
+   * @param output The configured output directory/directory mapping for source files.
+   * @param log Where all log messages should go
+   * @param options Incremental compiler options (like name hashing vs. not).
    * @return A flag of whether or not compilation completed successfully, and the resulting
    *         dependency analysis object.
    */
@@ -73,9 +73,7 @@ object IncrementalCompile {
       currentSetup: MiniSetup,
       outputJarContent: JarUtils.OutputJarContent
   ): (Boolean, Analysis) = {
-    val previous = previous0 match {
-      case a: Analysis => a
-    }
+    val previous = previous0 match { case a: Analysis => a }
     val externalHooks = options.externalHooks()
     val current =
       Stamps.initial(
@@ -123,13 +121,16 @@ object IncrementalCompile {
     }
   }
 
-  /*  Skeletal implementation of a `quickAPI` callback, making use of the `provenance` field composed of name.hash:
+/*
+  // Skeletal implementation of a `quickAPI` callback,
+  // making use of the `provenance` field composed of name.hash:
 
       // Build from whatever you're using for for PerClasspathEntryLookup
       private def analysisCache(name: String ): Option[CompileAnalysis] =  ???
+
       // Populate this during analysis read-mapping
       private val unchangedProvenances: Set[String] = ???
-      //
+
       private val nameToAnalysis: Map[String, Path] = ???
       private object ProvenanceExtractor {
          // Extract name and hash from name of the jar file where a class was found by scalac
@@ -186,9 +187,7 @@ object IncrementalCompile {
             }
           }
         )
-
-
-   */
+*/
 
   def getExternalAPI(
       hooks: ExternalHooks,
@@ -206,15 +205,19 @@ object IncrementalCompile {
         case _ =>
           // Didn't find an API, but it still might be in the project somewhere.  We'll need to load all the
           // analyses to be sure.
-          lookup.lookupAnalysis(binaryClassName) flatMap {
-            case (analysis: Analysis) =>
-              val sourceClassName =
-                analysis.relations.productClassName.reverse(binaryClassName).headOption
-              sourceClassName.flatMap(analysis.apis.internal.get)
-          }
+          getExternalAPI0(lookup)(file, binaryClassName)
       }
     }
   }
+
+  private def getExternalAPI0(lookup: Lookup): (File, String) => Option[AnalyzedClass] =
+    (_: File, binaryClassName: String) =>
+      lookup.lookupAnalysis(binaryClassName) flatMap {
+        case (analysis: Analysis) =>
+          val sourceClassName =
+            analysis.relations.productClassName.reverse(binaryClassName).headOption
+          sourceClassName flatMap analysis.apis.internal.get
+      }
 }
 
 private object AnalysisCallback {
@@ -290,7 +293,7 @@ private final class AnalysisCallback(
       .map { case (label, map) => label + "\n\t" + map.mkString("\n\t") }
       .mkString("\n")
 
-  import collection.mutable.{ HashMap, HashSet, ListBuffer, Map, Set }
+  import scala.collection.mutable.{ HashMap, HashSet, ListBuffer, Map, Set }
 
   final case class ApiInfo(
       publicHash: HashAPI.Hash,
@@ -331,8 +334,8 @@ private final class AnalysisCallback(
 
   private[this] var savedPickles = false
 
-  // Results of invalidation calculations (including whether to continue cycles) - the analysis at this point is
-  // not useful and so isn't included.
+  // Results of invalidation calculations (including whether to continue cycles)
+  // the analysis at this point is not useful and so isn't included.
   private[this] var invalidationResults: Option[CompileCycleResults] = None
 
   private def add[A, B](map: TrieMap[A, ConcurrentSet[B]], a: A, b: B): Unit = {
@@ -552,7 +555,7 @@ private final class AnalysisCallback(
     )
   }
 
-  def createStamperForProducts(): File => Stamp = {
+  def createStamperForProducts(): File => xsbti.compile.analysis.Stamp = {
     JarUtils.getOutputJar(output) match {
       case Some(outputJar) => Stamper.forLastModifiedInJar(outputJar)
       case None            => stampReader.product _
@@ -632,21 +635,6 @@ private final class AnalysisCallback(
     }
   }
 
-  override def apiPhaseCompleted(): Unit = {
-    // If we know we're done with cycles (presumably because all sources were invalidated) we can store early analysis
-    // and picke data now.  Otherwise, we need to wait for dependency information to decide if there are more cycles.
-    if (process.isKnownFinal) {
-      val CompileCycleResults(continue, invalidations, merged) =
-        process.mergeAndInvalidate(analysis, false)
-      assert(
-        !continue && invalidations.isEmpty,
-        "Everything was supposed to be invalidated already."
-      )
-      invalidationResults = Some(CompileCycleResults.empty)
-      writeEarlyArtifacts(merged)
-    }
-  }
-
   override def dependencyPhaseCompleted(): Unit = {
     if (invalidationResults.isEmpty) {
       val CompileCycleResults(continue, invalidations, merged) =
@@ -660,6 +648,17 @@ private final class AnalysisCallback(
     outputJarContent.dependencyPhaseCompleted()
   }
 
+  override def apiPhaseCompleted(): Unit = {
+    // If we know we're done with cycles (presumably because all sources were invalidated) we can store early analysis
+    // and picke data now.  Otherwise, we need to wait for dependency information to decide if there are more cycles.
+    if (process.isKnownFinal) {
+     val CompileCycleResults(continue, invalidations, merged) = process.mergeAndInvalidate(analysis, false)
+      assert(!continue && invalidations.isEmpty, "Everything was supposed to be invalidated already.")
+      invalidationResults = Some(CompileCycleResults.empty)
+      writeEarlyArtifacts(merged)
+    }
+  }
+
   // Can't do anything involving `global` here, because we probably don't have the
   // same classloader as the bridge.
   override def processPickleData(pickleData: Array[PickleData]): Unit = {
@@ -668,7 +667,6 @@ private final class AnalysisCallback(
     // Accumulate pickle data
     if (!pickleData.isEmpty && hooks.pickleJarPath.isPresent)
       accruedPickleData ++= pickleData
-
   }
 
   override def classesInOutputJar(): java.util.Set[String] = {

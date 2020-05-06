@@ -12,19 +12,17 @@
 package xsbt
 
 import java.io.PrintWriter
+import java.nio.file.Path
 
-import xsbti.AnalysisCallback
+import xsbti.AnalysisCallback.PickleData
 import xsbti.compile.Output
 
 import scala.reflect.{ internal => sri }
 import scala.reflect.internal.{ util => sriu }
+import scala.reflect.io.VirtualFile
 import scala.tools.nsc.{ Global, Settings }
 import scala.tools.nsc.interactive.RangePositions
-import scala.tools.nsc.symtab.Flags
-import Flags._
-import scala.collection.mutable
-import java.nio.file.Path
-import scala.reflect.io.VirtualFile
+import scala.tools.nsc.symtab.Flags, Flags._
 
 /**
  * Collection of hacks that make it possible for the compiler interface
@@ -199,7 +197,7 @@ object Compat {
   def pickleJava[G <: Global](global: G): Boolean = false
 
   // No pileline pickling in 2.10
-  def picklePaths(run: Global#Run) = Iterable.empty[AnalysisCallback.PickleData]
+  def picklePaths(run: Global#Run) = Iterable.empty[PickleData]
 
 }
 

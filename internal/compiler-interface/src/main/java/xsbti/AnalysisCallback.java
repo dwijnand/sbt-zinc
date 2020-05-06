@@ -175,6 +175,7 @@ public interface AnalysisCallback {
 
     /**
      * Communicate to the callback that the API phase has finished.
+     *
      * For instance, you can use this method it to wait on asynchronous tasks.
      */
     void apiPhaseCompleted();

@@ -8,6 +8,7 @@
  * See the NOTICE file distributed with this work for
  * additional information regarding copyright ownership.
  */
+
 package sbt.internal.inc
 
 import java.io.File

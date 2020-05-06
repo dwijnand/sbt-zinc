@@ -79,11 +79,10 @@ final class MixedAnalyzingCompiler(
       )
 
     val (javaSrcs, scalaSrcs) = incSrc.partition(javaOnly)
-
     logInputs(log, javaSrcs.size, scalaSrcs.size, outputDirs)
 
-    /** Compile Scala sources. */
-    def compileScala(): Unit = {
+    // Compile Scala sources.
+    def compileScala(): Unit =
       if (scalaSrcs.nonEmpty || pickleJava) {
         JarUtils.withPreviousJar(output) { extraClasspath =>
           val sources = if (config.currentSetup.order == Mixed || pickleJava) incSrc else scalaSrcs
@@ -105,9 +104,8 @@ final class MixedAnalyzingCompiler(
           }
         }
       }
-    }
 
-    /** Compile java and run analysis. */
+    // Compile java and run analysis.
     def compileJava(): Unit = {
       if (javaSrcs.nonEmpty && !pickleJava) {
         timed("Java compilation + analysis", log) {

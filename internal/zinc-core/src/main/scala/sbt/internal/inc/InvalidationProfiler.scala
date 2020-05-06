@@ -83,22 +83,21 @@ class ZincInvalidationProfiler extends InvalidationProfiler {
   )
 
   private[inc] class ZincProfilerImplementation(val id: String) extends RunProfiler {
-    private def toStringTableIndex(string: String): Int =
-      ZincInvalidationProfiler.this.synchronized {
-        stringTableIndices.get(string) match {
-          case Some(index) =>
-            val newIndex = index.toInt
-            stringTable.apply(newIndex)
-            newIndex
-          case None =>
-            val newIndex = lastKnownIndex + 1
-            // Depending on the size of the index, use the first or second symbol table
-            stringTable.insert(newIndex.toInt, string)
-            stringTableIndices.put(string, newIndex)
-            lastKnownIndex = newIndex
-            newIndex
-        }
+    private def toStringTableIndex(string: String): Int = ZincInvalidationProfiler.this.synchronized {
+      stringTableIndices.get(string) match {
+        case Some(index) =>
+          val newIndex = index.toInt
+          stringTable.apply(newIndex)
+          newIndex
+        case None =>
+          val newIndex = lastKnownIndex + 1
+          // Depending on the size of the index, use the first or second symbol table
+          stringTable.insert(newIndex.toInt, string)
+          stringTableIndices.put(string, newIndex)
+          lastKnownIndex = newIndex
+          newIndex
       }
+    }
 
     private def toStringTableIndices(strings: Iterable[String]): Iterable[Int] =
       strings.map(toStringTableIndex(_))
@@ -224,7 +223,7 @@ class ZincInvalidationProfiler extends InvalidationProfiler {
 
 /**
  * Defines the interface of a profiler. This interface is used in the guts of
- * [[IncrementalCommon]] and [[IncrementalNameHashing]]. A profiler of a run
+ * `IncrementalCommon` and `IncrementalNameHashing`. A profiler of a run
  * is instantiated afresh in `Incremental.compile` and then added to the profiler
  * instance managed by the client.
  */

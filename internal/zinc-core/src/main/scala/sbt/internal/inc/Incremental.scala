@@ -18,19 +18,18 @@ import java.io.File
 import sbt.util.{ Level, Logger }
 import xsbti.compile.analysis.{ ReadStamps, Stamp => XStamp }
 import xsbti.compile.{
+  ClassFileManager => XClassFileManager,
   CompileAnalysis,
   DependencyChanges,
   IncOptions,
-  Output,
-  ClassFileManager => XClassFileManager
+  Output
 }
 
 /**
  * Define helpers to run incremental compilation algorithm with name hashing.
  */
 object Incremental {
-
-  val ONLY_PICKLE_JAVA = 1L
+  val ONLY_PICKLE_JAVA = 1l
   def onlyPickleJava(options: IncOptions) = (options.moreFlags() & ONLY_PICKLE_JAVA) != 0
 
   class PrefixingLogger(val prefix: String)(orig: Logger) extends Logger {
@@ -83,14 +82,7 @@ object Incremental {
     val runProfiler = profiler.profileRun(output.toString)
     val incremental: IncrementalCommon = new IncrementalNameHashing(log, options, runProfiler)
     val initialChanges =
-      incremental.detectInitialChanges(
-        sources,
-        previous,
-        current,
-        lookup,
-        options.externalHooks(),
-        output
-      )
+      incremental.detectInitialChanges(sources, previous, current, lookup, options.externalHooks(), output)
     val binaryChanges = new DependencyChanges {
       val modifiedBinaries = initialChanges.binaryDeps.toArray
       val modifiedClasses = initialChanges.external.allModified.toArray
@@ -135,20 +127,19 @@ object Incremental {
       if (initialInvClasses.isEmpty && initialInvSources.isEmpty) {
         options.externalHooks().picklesComplete()
         previous
-      } else
-        incremental.cycle(
-          initialInvClasses,
-          initialInvSources,
-          sources,
-          invalidateAllThreshold,
-          binaryChanges,
-          lookup,
-          previous,
-          doCompile(compile, callbackBuilder, classfileManager),
-          classfileManager,
-          1,
-          javaSources
-        )
+      } else incremental.cycle(
+        initialInvClasses,
+        initialInvSources,
+        sources,
+        invalidateAllThreshold,
+        binaryChanges,
+        lookup,
+        previous,
+        doCompile(compile, callbackBuilder, classfileManager),
+        classfileManager,
+        1,
+        javaSources
+      )
     }
     (initialInvClasses.nonEmpty || initialInvSources.nonEmpty, analysis)
   }
@@ -160,16 +151,14 @@ object Incremental {
       compile: (Set[File], DependencyChanges, xsbti.AnalysisCallback, XClassFileManager) => Unit,
       callbackBuilder: AnalysisCallback.Builder,
       classFileManager: XClassFileManager
-  ) = new CompileCycle {
-    override def apply(srcs: Set[File], changes: DependencyChanges, process: ProcessAnalysis) = {
-      // Note `ClassFileManager` is shared among multiple cycles in the same incremental compile run,
-      // in order to rollback entirely if transaction fails. `AnalysisCallback` is used by each cycle
-      // to report its own analysis individually.
-      val callback = callbackBuilder.build(process)
-      compile(srcs, changes, callback, classFileManager)
-      callback.getFinal
-    }
-  }
+  ) = new CompileCycle { override def apply(srcs: Set[File], changes: DependencyChanges, process: ProcessAnalysis) = {
+    // Note `ClassFileManager` is shared among multiple cycles in the same incremental compile run,
+    // in order to rollback entirely if transaction fails. `AnalysisCallback` is used by each cycle
+    // to report its own analysis individually.
+    val callback = callbackBuilder.build(process)
+    compile(srcs, changes, callback, classFileManager)
+    callback.getFinal
+  }}
 
   // the name of system property that was meant to enable debugging mode of incremental compiler but
   // it ended up being used just to enable debugging of relations. That's why if you migrate to new

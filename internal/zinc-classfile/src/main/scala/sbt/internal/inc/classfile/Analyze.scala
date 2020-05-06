@@ -24,7 +24,7 @@ import xsbti.api.DependencyContext
 import xsbti.api.DependencyContext._
 import sbt.io.IO
 import sbt.util.Logger
-import xsbti.compile.{ Output, SingleOutput }
+import xsbti.compile.Output
 
 private[sbt] object Analyze {
   def apply[T](
@@ -35,7 +35,7 @@ private[sbt] object Analyze {
       finalJarOutput: Option[File],
       pickleJava: Boolean
   )(
-      callback: xsbti.AnalysisCallback,
+      analysis: xsbti.AnalysisCallback,
       loader: ClassLoader,
       readAPI: (File, Seq[Class[_]]) => Set[(String, String)]
   ): Unit = {
@@ -94,123 +94,121 @@ private[sbt] object Analyze {
       srcClassName match {
         case Some(className) =>
           if (!pickleJava)
-            callback.generatedNonLocalClass(source, finalClassFile, binaryClassName, className)
+            analysis.generatedNonLocalClass(source, finalClassFile, binaryClassName, className)
           classNames += className
-        case None => callback.generatedLocalClass(source, finalClassFile)
+        case None => analysis.generatedLocalClass(source, finalClassFile)
       }
 
       sourceToClassFiles(source) += classFile
     }
 
     // get class to class dependencies and map back to source to class dependencies
-    if (!pickleJava)
-      for ((source, classFiles) <- sourceToClassFiles) {
+    if (!pickleJava) for ((source, classFiles) <- sourceToClassFiles) {
+      analysis.startSource(source)
+      val loadedClasses = classFiles.map(c => binaryClassNameToLoadedClass(c.className))
+      // Local classes are either local, anonymous or inner Java classes
+      val (nonLocalClasses, localClassesOrStale) =
+        loadedClasses.partition(_.getCanonicalName != null)
 
-        callback.startSource(source)
-        val loadedClasses = classFiles.map(c => binaryClassNameToLoadedClass(c.className))
-        // Local classes are either local, anonymous or inner Java classes
-        val (nonLocalClasses, localClassesOrStale) =
-          loadedClasses.partition(_.getCanonicalName != null)
+      // Map local classes to the sources of their enclosing classes
+      val localClassesToSources = {
+        val localToSourcesSeq = for {
+          cls <- localClassesOrStale
+          enclosingCls <- Option(cls.getEnclosingClass)
+          sourceOfEnclosing <- binaryToSourceName(enclosingCls)
+        } yield (cls.getName, sourceOfEnclosing)
+        localToSourcesSeq.toMap
+      }
 
-        // Map local classes to the sources of their enclosing classes
-        val localClassesToSources = {
-          val localToSourcesSeq = for {
-            cls <- localClassesOrStale
-            enclosingCls <- Option(cls.getEnclosingClass)
-            sourceOfEnclosing <- binaryToSourceName(enclosingCls)
-          } yield (cls.getName, sourceOfEnclosing)
-          localToSourcesSeq.toMap
+      /* Get the mapped source file from a given class name. */
+      def getMappedSource(className: String): Option[String] = {
+        val nonLocalSourceName: Option[String] = for {
+          loadedClass <- binaryClassNameToLoadedClass.get(className)
+          sourceName <- binaryToSourceName(loadedClass)
+        } yield sourceName
+        nonLocalSourceName.orElse(localClassesToSources.get(className))
+      }
+
+      def processDependency(
+          onBinaryName: String,
+          context: DependencyContext,
+          fromBinaryName: String
+      ): Unit = {
+        def loadFromClassloader(): Option[File] = {
+          for {
+            url <- Option(loader.getResource(classNameToClassFile(onBinaryName)))
+            file <- urlAsFile(url, log, finalJarOutput)
+          } yield { classfilesCache(onBinaryName) = file; file }
         }
 
-        /* Get the mapped source file from a given class name. */
-        def getMappedSource(className: String): Option[String] = {
-          val nonLocalSourceName: Option[String] = for {
-            loadedClass <- binaryClassNameToLoadedClass.get(className)
-            sourceName <- binaryToSourceName(loadedClass)
-          } yield sourceName
-          nonLocalSourceName.orElse(localClassesToSources.get(className))
-        }
-
-        def processDependency(
-            onBinaryName: String,
-            context: DependencyContext,
-            fromBinaryName: String
-        ): Unit = {
-          def loadFromClassloader(): Option[File] = {
-            for {
-              url <- Option(loader.getResource(classNameToClassFile(onBinaryName)))
-              file <- urlAsFile(url, log, finalJarOutput)
-            } yield { classfilesCache(onBinaryName) = file; file }
-          }
-
-          getMappedSource(fromBinaryName) match {
-            case Some(fromClassName) =>
-              trapAndLog(log) {
-                val scalaLikeTypeName = onBinaryName.replace('$', '.')
-                if (classNames.contains(scalaLikeTypeName)) {
-                  callback.classDependency(scalaLikeTypeName, fromClassName, context)
-                } else {
-                  val cachedOrigin = classfilesCache.get(onBinaryName)
-                  for (file <- cachedOrigin.orElse(loadFromClassloader())) {
-                    val binaryFile = {
-                      if (singleOutputOrNull == null || outputJarOrNull == null) file
-                      else resolveFinalClassFile(file, singleOutputOrNull, outputJarOrNull, log)
-                    }
-
-                    callback.binaryDependency(
-                      binaryFile,
-                      onBinaryName,
-                      fromClassName,
-                      source,
-                      context
-                    )
+        getMappedSource(fromBinaryName) match {
+          case Some(fromClassName) =>
+            trapAndLog(log) {
+              val scalaLikeTypeName = onBinaryName.replace('$', '.')
+              if (classNames.contains(scalaLikeTypeName)) {
+                analysis.classDependency(scalaLikeTypeName, fromClassName, context)
+              } else {
+                val cachedOrigin = classfilesCache.get(onBinaryName)
+                for (file <- cachedOrigin.orElse(loadFromClassloader())) {
+                  val binaryFile = {
+                    if (singleOutputOrNull == null || outputJarOrNull == null) file
+                    else resolveFinalClassFile(file, singleOutputOrNull, outputJarOrNull, log)
                   }
+
+                  analysis.binaryDependency(
+                    binaryFile,
+                    onBinaryName,
+                    fromClassName,
+                    source,
+                    context
+                  )
                 }
               }
-            case None => // It could be a stale class file, ignore
-          }
-        }
-        def processDependencies(
-            binaryClassNames: Iterable[String],
-            context: DependencyContext,
-            fromBinaryClassName: String
-        ): Unit =
-          binaryClassNames.foreach(
-            binaryClassName => processDependency(binaryClassName, context, fromBinaryClassName)
-          )
-
-        // Get all references to types in a given class file (via constant pool)
-        val typesInSource = classFiles.map(cf => cf.className -> cf.types).toMap
-
-        // Process dependencies by member references
-        typesInSource foreach {
-          case (binaryClassName, binaryClassNameDeps) =>
-            processDependencies(binaryClassNameDeps, DependencyByMemberRef, binaryClassName)
-        }
-
-        def readInheritanceDependencies(classes: Seq[Class[_]]) = {
-          val api = readAPI(source, classes)
-          api.groupBy(_._1).mapValues(_.map(_._2))
-        }
-
-        // Read API of non-local classes and process dependencies by inheritance
-        val nonLocalInherited: Map[String, Set[String]] =
-          readInheritanceDependencies(nonLocalClasses)
-        nonLocalInherited foreach {
-          case (className, inheritanceDeps) =>
-            processDependencies(inheritanceDeps, DependencyByInheritance, className)
-        }
-
-        // Read API of local classes and process local dependencies by inheritance
-        val localClasses =
-          localClassesOrStale.filter(cls => localClassesToSources.contains(cls.getName))
-        val localInherited: Map[String, Set[String]] =
-          readInheritanceDependencies(localClasses)
-        localInherited foreach {
-          case (className, inheritanceDeps) =>
-            processDependencies(inheritanceDeps, LocalDependencyByInheritance, className)
+            }
+          case None => // It could be a stale class file, ignore
         }
       }
+      def processDependencies(
+          binaryClassNames: Iterable[String],
+          context: DependencyContext,
+          fromBinaryClassName: String
+      ): Unit =
+        binaryClassNames.foreach(
+          binaryClassName => processDependency(binaryClassName, context, fromBinaryClassName)
+        )
+
+      // Get all references to types in a given class file (via constant pool)
+      val typesInSource = classFiles.map(cf => cf.className -> cf.types).toMap
+
+      // Process dependencies by member references
+      typesInSource foreach {
+        case (binaryClassName, binaryClassNameDeps) =>
+          processDependencies(binaryClassNameDeps, DependencyByMemberRef, binaryClassName)
+      }
+
+      def readInheritanceDependencies(classes: Seq[Class[_]]) = {
+        val api = readAPI(source, classes)
+        api.groupBy(_._1).mapValues(_.map(_._2))
+      }
+
+      // Read API of non-local classes and process dependencies by inheritance
+      val nonLocalInherited: Map[String, Set[String]] =
+        readInheritanceDependencies(nonLocalClasses)
+      nonLocalInherited foreach {
+        case (className, inheritanceDeps) =>
+          processDependencies(inheritanceDeps, DependencyByInheritance, className)
+      }
+
+      // Read API of local classes and process local dependencies by inheritance
+      val localClasses =
+        localClassesOrStale.filter(cls => localClassesToSources.contains(cls.getName))
+      val localInherited: Map[String, Set[String]] =
+        readInheritanceDependencies(localClasses)
+      localInherited foreach {
+        case (className, inheritanceDeps) =>
+          processDependencies(inheritanceDeps, LocalDependencyByInheritance, className)
+      }
+    }
   }
 
   /**
