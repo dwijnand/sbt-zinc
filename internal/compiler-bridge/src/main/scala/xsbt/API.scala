@@ -56,7 +56,8 @@ final class API(val global: CallbackGlobal) extends Compat with GlobalHelpers wi
     }
 
     def apply(unit: global.CompilationUnit): Unit = processUnit(unit)
-    private def processUnit(unit: CompilationUnit) = if (!unit.isJava || pickleJava) processScalaUnit(unit)
+    private def processUnit(unit: CompilationUnit) =
+      if (!unit.isJava || pickleJava) processScalaUnit(unit)
     private def processScalaUnit(unit: CompilationUnit): Unit = {
       val sourceFile = unit.source.file.file
       debuglog("Traversing " + sourceFile)
@@ -195,10 +196,10 @@ final class API(val global: CallbackGlobal) extends Compat with GlobalHelpers wi
     }
     def isTopLevel(sym: Symbol): Boolean = {
       !ignoredSymbol(sym) &&
-        sym.isStatic &&
-        !sym.isImplClass &&
-        (!sym.hasFlag(Flags.JAVA) || pickleJava) &&
-        !sym.isNestedClass
+      sym.isStatic &&
+      !sym.isImplClass &&
+      (!sym.hasFlag(Flags.JAVA) || pickleJava) &&
+      !sym.isNestedClass
     }
   }
 

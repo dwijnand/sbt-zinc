@@ -13,13 +13,13 @@ package sbt
 package internal
 package inc
 
-import java.io.{File, IOException}
+import java.io.{ File, IOException }
 import java.util
 import java.util.Optional
 
-import sbt.io.{IO, Hash => IOHash}
+import sbt.io.{ IO, Hash => IOHash }
 import xsbti.compile.SourceSource
-import xsbti.compile.analysis.{ReadStamps, Stamp => XStamp}
+import xsbti.compile.analysis.{ ReadStamps, Stamp => XStamp }
 
 import scala.collection.immutable.TreeMap
 import scala.util.matching.Regex
@@ -47,7 +47,7 @@ trait Stamps extends ReadStamps {
   def ++(o: Stamps): Stamps
   def groupBy[K](
       prod: Map[K, File => Boolean],
-                 sourcesGrouping: File => K,
+      sourcesGrouping: File => K,
       bin: Map[K, File => Boolean]
   ): Map[K, Stamps]
 }
@@ -151,7 +151,7 @@ object Stamper {
   }
 
   def forHash(getSource: SourceSource): File => XStamp = {
-    if(getSource.available) {
+    if (getSource.available) {
       val f = getSource.apply _
       (toStamp: File) => tryStamp(Hash.ofString(f(toStamp.toPath)))
     } else forLastModified
@@ -175,7 +175,7 @@ object Stamps {
    */
   def initial(
       prodStamp: File => XStamp,
-              srcStamp: File => XStamp,
+      srcStamp: File => XStamp,
       binStamp: File => XStamp
   ): ReadStamps =
     new InitialStamps(prodStamp, srcStamp, binStamp)
@@ -187,7 +187,7 @@ object Stamps {
   }
   def apply(
       products: Map[File, XStamp],
-            sources: Map[File, XStamp],
+      sources: Map[File, XStamp],
       binaries: Map[File, XStamp]
   ): Stamps =
     new MStamps(products, sources, binaries)
@@ -197,7 +197,7 @@ object Stamps {
 
 private class MStamps(
     val products: Map[File, XStamp],
-                      val sources: Map[File, XStamp],
+    val sources: Map[File, XStamp],
     val binaries: Map[File, XStamp]
 ) extends Stamps {
 
@@ -230,7 +230,7 @@ private class MStamps(
 
   def groupBy[K](
       prod: Map[K, File => Boolean],
-                 f: File => K,
+      f: File => K,
       bin: Map[K, File => Boolean]
   ): Map[K, Stamps] = {
     val sourcesMap: Map[K, Map[File, XStamp]] = sources.groupBy(x => f(x._1))
@@ -259,14 +259,14 @@ private class MStamps(
   override def toString: String =
     "Stamps for: %d products, %d sources, %d binaries".format(
       products.size,
-                                                              sources.size,
+      sources.size,
       binaries.size
     )
 }
 
 private class InitialStamps(
     prodStamp: File => XStamp,
-                            srcStamp: File => XStamp,
+    srcStamp: File => XStamp,
     binStamp: File => XStamp
 ) extends ReadStamps {
   import collection.mutable.{ HashMap, Map }

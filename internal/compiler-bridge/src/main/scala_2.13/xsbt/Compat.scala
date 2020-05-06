@@ -70,7 +70,6 @@ object Compat {
   }
 }
 
-
 /** Defines compatibility utils for [[ZincCompiler]]. */
 trait ZincGlobalCompat {
   protected def superDropRun(): Unit = ()

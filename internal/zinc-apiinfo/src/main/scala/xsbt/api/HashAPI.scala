@@ -66,11 +66,13 @@ final class HashAPI private (
   def this(includePrivate: Boolean, includeParamNames: Boolean) {
     // in the old logic we used to always include definitions hence
     // includeDefinitions=true
-    this(includePrivate,
-         includeParamNames,
-         includeDefinitions = true,
-         includeSealedChildren = true,
-         includeTraitBreakers = false)
+    this(
+      includePrivate,
+      includeParamNames,
+      includeDefinitions = true,
+      includeSealedChildren = true,
+      includeTraitBreakers = false
+    )
   }
 
   import scala.collection.mutable
@@ -326,7 +328,7 @@ final class HashAPI private (
   }
 
   def hashTypes(ts: Array[Type], includeDefinitions: Boolean = true, ordered: Boolean = true) =
-    if(ordered)
+    if (ordered)
       hashArray(ts, (t: Type) => hashType(t, includeDefinitions))
     else
       hashSymmetric(ts, (t: Type) => hashType(t, includeDefinitions))

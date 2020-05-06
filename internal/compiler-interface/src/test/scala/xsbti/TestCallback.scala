@@ -15,7 +15,7 @@ import java.io.File
 import java.util
 
 import xsbti.AnalysisCallback.PickleData
-import xsbti.api.{ClassLike, DependencyContext}
+import xsbti.api.{ ClassLike, DependencyContext }
 
 import scala.collection.mutable.ArrayBuffer
 
@@ -43,7 +43,7 @@ class TestCallback extends AnalysisCallback {
 
   def classDependency(
       onClassName: String,
-                      sourceClassName: String,
+      sourceClassName: String,
       context: DependencyContext
   ): Unit = {
     if (onClassName != sourceClassName)
@@ -52,9 +52,9 @@ class TestCallback extends AnalysisCallback {
   }
   def binaryDependency(
       onBinary: File,
-                       onBinaryClassName: String,
-                       fromClassName: String,
-                       fromSourceFile: File,
+      onBinaryClassName: String,
+      fromClassName: String,
+      fromSourceFile: File,
       context: DependencyContext
   ): Unit = {
     binaryDependencies += ((onBinary, onBinaryClassName, fromClassName, context))
@@ -62,8 +62,8 @@ class TestCallback extends AnalysisCallback {
   }
   def generatedNonLocalClass(
       sourceFile: File,
-                             classFile: File,
-                             binaryClassName: String,
+      classFile: File,
+      binaryClassName: String,
       srcClassName: String
   ): Unit = {
     productClassesToSources += ((classFile, sourceFile))
@@ -92,9 +92,9 @@ class TestCallback extends AnalysisCallback {
 
   def problem(
       category: String,
-              pos: xsbti.Position,
-              message: String,
-              severity: xsbti.Severity,
+      pos: xsbti.Position,
+      message: String,
+      severity: xsbti.Severity,
       reported: Boolean
   ): Unit = ()
 
@@ -114,7 +114,7 @@ class TestCallback extends AnalysisCallback {
 object TestCallback {
   case class ExtractedClassDependencies(
       memberRef: Map[String, Set[String]],
-                                        inheritance: Map[String, Set[String]],
+      inheritance: Map[String, Set[String]],
       localInheritance: Map[String, Set[String]]
   )
   object ExtractedClassDependencies {
@@ -125,7 +125,7 @@ object TestCallback {
     ): ExtractedClassDependencies = {
       ExtractedClassDependencies(
         pairsToMultiMap(memberRefPairs),
-                                 pairsToMultiMap(inheritancePairs),
+        pairsToMultiMap(inheritancePairs),
         pairsToMultiMap(localInheritancePairs)
       )
     }

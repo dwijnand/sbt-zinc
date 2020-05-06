@@ -171,7 +171,7 @@ final class ProtobufReaders(mapper: ReadMapper, currentVersion: schema.Version) 
     val unreportedProblems = sourceInfo.unreportedProblems.map(fromProblem)
     SourceInfos.makeInfo(
       reported = reportedProblems,
-                         unreported = unreportedProblems,
+      unreported = unreportedProblems,
       mainClasses = mainClasses
     )
   }
@@ -562,7 +562,16 @@ final class ProtobufReaders(mapper: ReadMapper, currentVersion: schema.Version) 
     val nameHashes = analyzedClass.nameHashes.toZincArray(fromNameHash)
     val hasMacro = analyzedClass.hasMacro
     val provenance = analyzedClass.provenance
-    AnalyzedClass.of(compilationTimestamp, name, api, apiHash, nameHashes, hasMacro, extraHash, provenance.intern())
+    AnalyzedClass.of(
+      compilationTimestamp,
+      name,
+      api,
+      apiHash,
+      nameHashes,
+      hasMacro,
+      extraHash,
+      provenance.intern()
+    )
   }
 
   private final val stringId = identity[String] _
@@ -570,7 +579,7 @@ final class ProtobufReaders(mapper: ReadMapper, currentVersion: schema.Version) 
   def fromRelations(relations: schema.Relations): Relations = {
     def fromMap[K, V](
         map: Map[String, schema.Values],
-                      fk: String => K,
+        fk: String => K,
         fv: String => V
     ): Relation[K, V] = {
       val forwardMap = map.iterator.map {

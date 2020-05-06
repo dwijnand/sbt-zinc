@@ -100,15 +100,15 @@ trait AnalysisGenerators {
   private[this] def makeClassLike(name: String, definitionType: DefinitionType): ClassLike =
     ClassLike.of(
       name,
-                 Public.of(),
-                 APIs.emptyModifiers,
-                 Array(),
-                 definitionType,
-                 lzy(EmptyType.of()),
-                 lzy(emptyStructure),
-                 Array(),
-                 Array(),
-                 true,
+      Public.of(),
+      APIs.emptyModifiers,
+      Array(),
+      definitionType,
+      lzy(EmptyType.of()),
+      lzy(emptyStructure),
+      Array(),
+      Array(),
+      true,
       Array()
     )
 
@@ -245,12 +245,12 @@ trait AnalysisGenerators {
       )
     } yield Relations.make(
       srcProd,
-                     libraryDep,
-                     libraryClassName,
-                     internal,
-                     external,
-                     classes,
-                     names,
+      libraryDep,
+      libraryClassName,
+      internal,
+      external,
+      classes,
+      names,
       productClassName
     )
 

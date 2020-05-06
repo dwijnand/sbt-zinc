@@ -294,8 +294,10 @@ class IncrementalCompilerImpl extends IncrementalCompiler {
         JarUtils.setupTempClassesDir(temporaryClassesDirectory)
         val (analysis, changed) = compileInternal(
           MixedAnalyzingCompiler(config)(logger),
-          equivCompileSetup(logger,
-            equivOpts0(equivScalacOptions(incrementalOptions.ignoredScalacOptions))),
+          equivCompileSetup(
+            logger,
+            equivOpts0(equivScalacOptions(incrementalOptions.ignoredScalacOptions))
+          ),
           equivPairs,
           logger
         )

@@ -76,7 +76,18 @@ final class AnalyzingCompiler(
     val reporterConfig = basicReporterConfig.withMaximumErrors(maximumErrors)
     val reporter = ReporterManager.getReporter(log, reporterConfig)
     val progress = Optional.empty[CompileProgress]
-    compile(sources, getSource, changes, arguments.toArray, output, callback, reporter, cache, log, progress)
+    compile(
+      sources,
+      getSource,
+      changes,
+      arguments.toArray,
+      output,
+      callback,
+      reporter,
+      cache,
+      log,
+      progress
+    )
   }
 
   def compile(
@@ -351,7 +362,7 @@ object AnalyzingCompiler {
       // Extract the sources to be compiled
       val extractedSources = sourceJars
         .foldLeft(Set.empty[File]) { (extracted, sourceJar) =>
-        extracted ++ keepIfSource(unzip(sourceJar, dir))
+          extracted ++ keepIfSource(unzip(sourceJar, dir))
         }
         .toSeq
       val (sourceFiles, resources) = extractedSources.partition(isSource)

@@ -69,9 +69,14 @@ final class MixedAnalyzingCompiler(
 
     val incSrc = config.sources.filter(include)
 
-    val pickleJava = Incremental.onlyPickleJava(config.incOptions) && include.exists(_.getName.endsWith(".java"))
-    if(pickleJava)
-      assert(config.currentSetup.options().scalacOptions().contains("-Ypickle-java"), "onlyPickleJava requires -Ypickle-java")
+    val pickleJava = Incremental.onlyPickleJava(config.incOptions) && include.exists(
+      _.getName.endsWith(".java")
+    )
+    if (pickleJava)
+      assert(
+        config.currentSetup.options().scalacOptions().contains("-Ypickle-java"),
+        "onlyPickleJava requires -Ypickle-java"
+      )
 
     val (javaSrcs, scalaSrcs) = incSrc.partition(javaOnly)
 
@@ -117,28 +122,32 @@ final class MixedAnalyzingCompiler(
             case Some(outputJar) =>
               val outputDir = JarUtils.javacTempOutput(outputJar)
               IO.createDirectory(outputDir)
-              javac.compile(javaSrcs,
-                            joptions,
-                            CompileOutput(outputDir),
-                            Some(outputJar),
-                            callback,
-                            incToolOptions,
-                            config.reporter,
-                            log,
-                            config.progress,
-                            pickleJava)
+              javac.compile(
+                javaSrcs,
+                joptions,
+                CompileOutput(outputDir),
+                Some(outputJar),
+                callback,
+                incToolOptions,
+                config.reporter,
+                log,
+                config.progress,
+                pickleJava
+              )
               putJavacOutputInJar(outputJar, outputDir)
             case None =>
-              javac.compile(javaSrcs,
-                            joptions,
-                            output,
-                            finalJarOutput = None,
-                            callback,
-                            incToolOptions,
-                            config.reporter,
-                            log,
-                            config.progress,
-                            pickleJava)
+              javac.compile(
+                javaSrcs,
+                joptions,
+                output,
+                finalJarOutput = None,
+                callback,
+                incToolOptions,
+                config.reporter,
+                log,
+                config.progress,
+                pickleJava
+              )
           }
         }
       }

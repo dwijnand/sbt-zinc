@@ -18,7 +18,7 @@ import DependencyContext._
 
 import scala.tools.nsc.io.{ PlainFile, ZipArchive }
 import scala.tools.nsc.Phase
-import java.util.{Optional, HashMap => JavaMap, HashSet => JavaSet}
+import java.util.{ Optional, HashMap => JavaMap, HashSet => JavaSet }
 import scala.collection.JavaConverters._
 
 object Dependency {
@@ -410,7 +410,8 @@ final class Dependency(val global: CallbackGlobal) extends LocateClassFile with 
 
         debuglog(
           "Parent types for " + tree.symbol + " (self: " + self.tpt.tpe + "): " + inheritanceTypes + " with symbols " + inheritanceSymbols
-            .map(_.fullName))
+            .map(_.fullName)
+        )
 
         inheritanceSymbols.foreach { symbol =>
           addInheritanceDependency(symbol)

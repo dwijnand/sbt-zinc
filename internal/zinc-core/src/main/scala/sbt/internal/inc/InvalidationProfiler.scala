@@ -13,7 +13,7 @@ package sbt.internal.inc
 
 import java.io.File
 
-import sbt.internal.inc.zprof.{CycleInvalidation, InvalidationEvent}
+import sbt.internal.inc.zprof.{ CycleInvalidation, InvalidationEvent }
 import xsbti.UseScope
 
 import scala.collection.mutable
@@ -83,21 +83,22 @@ class ZincInvalidationProfiler extends InvalidationProfiler {
   )
 
   private[inc] class ZincProfilerImplementation(val id: String) extends RunProfiler {
-    private def toStringTableIndex(string: String): Int = ZincInvalidationProfiler.this.synchronized {
-      stringTableIndices.get(string) match {
-        case Some(index) =>
-          val newIndex = index.toInt
-          stringTable.apply(newIndex)
-          newIndex
-        case None =>
-          val newIndex = lastKnownIndex + 1
-          // Depending on the size of the index, use the first or second symbol table
-          stringTable.insert(newIndex.toInt, string)
-          stringTableIndices.put(string, newIndex)
-          lastKnownIndex = newIndex
-          newIndex
+    private def toStringTableIndex(string: String): Int =
+      ZincInvalidationProfiler.this.synchronized {
+        stringTableIndices.get(string) match {
+          case Some(index) =>
+            val newIndex = index.toInt
+            stringTable.apply(newIndex)
+            newIndex
+          case None =>
+            val newIndex = lastKnownIndex + 1
+            // Depending on the size of the index, use the first or second symbol table
+            stringTable.insert(newIndex.toInt, string)
+            stringTableIndices.put(string, newIndex)
+            lastKnownIndex = newIndex
+            newIndex
+        }
       }
-    }
 
     private def toStringTableIndices(strings: Iterable[String]): Iterable[Int] =
       strings.map(toStringTableIndex(_))
@@ -286,7 +287,7 @@ object RunProfiler {
         shouldCompileIncrementally: Boolean
     ): Unit = ()
 
-    override def times: (Long, Long) = (0,0)
+    override def times: (Long, Long) = (0, 0)
 
     override def initialChanges: Option[zprof.InitialChanges] = None
 

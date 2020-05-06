@@ -11,7 +11,7 @@
 
 package sbt.internal.inc
 
-import java.{lang => jl}
+import java.{ lang => jl }
 
 import scala.collection.JavaConverters._
 import xsbti.UseScope
@@ -21,7 +21,7 @@ import scala.util.hashing.MurmurHash3
 final case class UsedName(name: String, scopes: UsedName.UseScopeSet) {
   private var _hashCode = 0
   override def hashCode() = {
-    if(_hashCode == 0) _hashCode = MurmurHash3.productHash(this)
+    if (_hashCode == 0) _hashCode = MurmurHash3.productHash(this)
     _hashCode
   }
 }

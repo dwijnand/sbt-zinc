@@ -85,7 +85,7 @@ sealed class ZincCompiler(settings: Settings, dreporter: DelegatingReporter, out
 
     override def advancePhase(): Unit = {
       // Tunnel cancellation.
-      if(callback.isCanceled)
+      if (callback.isCanceled)
         dreporter.cancelled = true
       callback.advancePhase(phase.name, phase.next.name)
       super.advancePhase()

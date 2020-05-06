@@ -27,15 +27,18 @@ import sbt.util.Logger
 import xsbti.compile.{ Output, SingleOutput }
 
 private[sbt] object Analyze {
-  def apply[T](newClasses: Seq[File],
-               sources: Seq[File],
-               log: Logger,
-               output: Output,
-               finalJarOutput: Option[File],
-               pickleJava: Boolean)(
-                callback: xsbti.AnalysisCallback,
-                loader: ClassLoader,
-                readAPI: (File, Seq[Class[_]]) => Set[(String, String)]): Unit = {
+  def apply[T](
+      newClasses: Seq[File],
+      sources: Seq[File],
+      log: Logger,
+      output: Output,
+      finalJarOutput: Option[File],
+      pickleJava: Boolean
+  )(
+      callback: xsbti.AnalysisCallback,
+      loader: ClassLoader,
+      readAPI: (File, Seq[Class[_]]) => Set[(String, String)]
+  ): Unit = {
     val sourceMap = sources.toSet[File].groupBy(_.getName)
     // For performance reasons, precompute these as they are static throughout this analysis
     val outputJarOrNull: File = finalJarOutput.getOrElse(null)
@@ -103,7 +106,6 @@ private[sbt] object Analyze {
     if (!pickleJava)
       for ((source, classFiles) <- sourceToClassFiles) {
 
-
         callback.startSource(source)
         val loadedClasses = classFiles.map(c => binaryClassNameToLoadedClass(c.className))
         // Local classes are either local, anonymous or inner Java classes
@@ -129,16 +131,16 @@ private[sbt] object Analyze {
           nonLocalSourceName.orElse(localClassesToSources.get(className))
         }
 
-      def processDependency(
-          onBinaryName: String,
-                              context: DependencyContext,
-          fromBinaryName: String
-      ): Unit = {
+        def processDependency(
+            onBinaryName: String,
+            context: DependencyContext,
+            fromBinaryName: String
+        ): Unit = {
           def loadFromClassloader(): Option[File] = {
             for {
               url <- Option(loader.getResource(classNameToClassFile(onBinaryName)))
               file <- urlAsFile(url, log, finalJarOutput)
-          } yield { classfilesCache(onBinaryName) = file; file }
+            } yield { classfilesCache(onBinaryName) = file; file }
           }
 
           getMappedSource(fromBinaryName) match {
@@ -155,26 +157,27 @@ private[sbt] object Analyze {
                       else resolveFinalClassFile(file, singleOutputOrNull, outputJarOrNull, log)
                     }
 
-                    callback.binaryDependency(binaryFile,
+                    callback.binaryDependency(
+                      binaryFile,
                       onBinaryName,
                       fromClassName,
                       source,
-                    context
-                  )
+                      context
+                    )
                   }
                 }
               }
             case None => // It could be a stale class file, ignore
           }
         }
-      def processDependencies(
-          binaryClassNames: Iterable[String],
-                                context: DependencyContext,
-          fromBinaryClassName: String
-      ): Unit =
-        binaryClassNames.foreach(
-          binaryClassName => processDependency(binaryClassName, context, fromBinaryClassName)
-        )
+        def processDependencies(
+            binaryClassNames: Iterable[String],
+            context: DependencyContext,
+            fromBinaryClassName: String
+        ): Unit =
+          binaryClassNames.foreach(
+            binaryClassName => processDependency(binaryClassName, context, fromBinaryClassName)
+          )
 
         // Get all references to types in a given class file (via constant pool)
         val typesInSource = classFiles.map(cf => cf.className -> cf.types).toMap
@@ -272,7 +275,7 @@ private[sbt] object Analyze {
     Option(loadedClass.getCanonicalName)
   private def guessSourcePath(
       sourceNameMap: Map[String, Set[File]],
-                              classFile: ClassFile,
+      classFile: ClassFile,
       log: Logger
   ) = {
     val classNameParts = classFile.className.split("""\.""")
@@ -294,7 +297,7 @@ private[sbt] object Analyze {
   }
   private def findSource(
       sourceNameMap: Map[String, Iterable[File]],
-                         pkg: List[String],
+      pkg: List[String],
       sourceFileName: String
   ): List[File] =
     refine((sourceNameMap get sourceFileName).toList.flatten.map { x =>

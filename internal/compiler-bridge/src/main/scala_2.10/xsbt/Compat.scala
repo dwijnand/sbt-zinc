@@ -16,16 +16,15 @@ import java.io.PrintWriter
 import xsbti.AnalysisCallback
 import xsbti.compile.Output
 
-import scala.reflect.{internal => sri}
-import scala.reflect.internal.{util => sriu}
-import scala.tools.nsc.{Global, Settings}
+import scala.reflect.{ internal => sri }
+import scala.reflect.internal.{ util => sriu }
+import scala.tools.nsc.{ Global, Settings }
 import scala.tools.nsc.interactive.RangePositions
 import scala.tools.nsc.symtab.Flags
 import Flags._
 import scala.collection.mutable
 import java.nio.file.Path
 import scala.reflect.io.VirtualFile
-
 
 /**
  * Collection of hacks that make it possible for the compiler interface
@@ -107,8 +106,10 @@ abstract class Compat {
 
     // Not present in 2.10
     @inline final def getterIn(base: Symbol): Symbol = sym.getter(base)
-    @inline final def setterIn(base: Symbol,
-                               hasExpandedName: Boolean = needsExpandedSetterName): Symbol =
+    @inline final def setterIn(
+        base: Symbol,
+        hasExpandedName: Boolean = needsExpandedSetterName
+    ): Symbol =
       sym.setter(base, hasExpandedName)
 
     // copied from 2.12.1 sources

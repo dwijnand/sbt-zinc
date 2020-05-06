@@ -11,10 +11,10 @@
 
 package sbt.internal.inc
 
-import java.io.{Closeable, OutputStream}
+import java.io.{ Closeable, OutputStream }
 import java.nio.file
 import java.nio.file._
-import java.nio.file.attribute.{BasicFileAttributes, FileTime}
+import java.nio.file.attribute.{ BasicFileAttributes, FileTime }
 import java.time.Instant
 
 import sbt.util.Logger
@@ -22,7 +22,6 @@ import xsbti.AnalysisCallback.PickleData
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable
-
 
 // RootJarPath is identical to s.reflect.io.RootPath, except that it doesn't delete pre-existing jars.
 abstract class RootJarPath extends Closeable {
@@ -50,10 +49,12 @@ object RootJarPath {
 }
 
 object PickleJar {
-  def write(pickleOut: file.Path,
-            data: Iterable[PickleData],
-            knownClasses: collection.Set[String],
-            log: Logger): file.Path = {
+  def write(
+      pickleOut: file.Path,
+      data: Iterable[PickleData],
+      knownClasses: collection.Set[String],
+      log: Logger
+  ): file.Path = {
 
     def trace(msg: String) = log.trace(() => new Exception(msg))
 
@@ -70,8 +71,8 @@ object PickleJar {
         // Reference to original scalac PickleBuffer (as AnyRef to avoid version dependence).
         // For some reason, these might be duplicated.
         val orig = pickle.orig()
-        if(!writtenPickles.containsKey(orig)) {
-          if(writtenSyms.contains(fqcn))
+        if (!writtenPickles.containsKey(orig)) {
+          if (writtenSyms.contains(fqcn))
             log.warn(s"Found duplicate fqcn $fqcn while writing pickles!")
           val elems: Iterable[String] = pickle.path.asScala.map(_.toString)
           assert(elems.head == "__ROOT__")
@@ -79,40 +80,45 @@ object PickleJar {
           Files.createDirectories(primary.getParent)
           var out: OutputStream = null
           try {
-            out = Files.newOutputStream(primary,
+            out = Files.newOutputStream(
+              primary,
               StandardOpenOption.CREATE,
-              StandardOpenOption.TRUNCATE_EXISTING)
+              StandardOpenOption.TRUNCATE_EXISTING
+            )
             out.write(pickle.bytes, 0, pickle.writeIndex)
             writtenSyms += fqcn
             trace(s"Added $fqcn to pickle jar")
           } finally {
-            if(out ne null)
+            if (out ne null)
               out.close()
           }
           writtenPickles.put(pickle.orig, fqcn)
         }
       }
 
-      Files.walkFileTree(pj.root, new SimpleFileVisitor[file.Path] {
-        override def visitFile(path: Path, attrs: BasicFileAttributes): FileVisitResult = {
-          val ps = path.toString
-          if(ps.endsWith(".sig")) {
-            // "/foo/bar/wiz.sig" -> "foo/bar/wiz.class"
-            val i0 = if(ps.startsWith("/")) 1 else 0
-            val cp = ps.substring(i0, ps.length -3 ) + "class"
-            if(!knownPaths.contains(cp)) {
-              log.info(s"Deleting sig for removed class $path")
-              trace(s"Removed $cp from picklejar")
-              Files.delete(path)
-            }
+      Files.walkFileTree(
+        pj.root,
+        new SimpleFileVisitor[file.Path] {
+          override def visitFile(path: Path, attrs: BasicFileAttributes): FileVisitResult = {
+            val ps = path.toString
+            if (ps.endsWith(".sig")) {
+              // "/foo/bar/wiz.sig" -> "foo/bar/wiz.class"
+              val i0 = if (ps.startsWith("/")) 1 else 0
+              val cp = ps.substring(i0, ps.length - 3) + "class"
+              if (!knownPaths.contains(cp)) {
+                log.info(s"Deleting sig for removed class $path")
+                trace(s"Removed $cp from picklejar")
+                Files.delete(path)
+              }
 
+            }
+            FileVisitResult.CONTINUE
           }
-          FileVisitResult.CONTINUE
         }
-      })
+      )
 
     } finally {
-      if(pj ne null)
+      if (pj ne null)
         pj.close()
     }
     Files.setLastModifiedTime(pickleOut, FileTime.from(Instant.now()))
