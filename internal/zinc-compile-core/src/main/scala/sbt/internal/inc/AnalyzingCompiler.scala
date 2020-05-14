@@ -70,24 +70,13 @@ final class AnalyzingCompiler(
       log: ManagedLogger
   ): Unit = {
     val compArgs = new CompilerArguments(scalaInstance, classpathOptions)
-    val arguments = compArgs(Nil, classpath, None, options)
+    val args = compArgs(Nil, classpath, None, options).toArray
     val output = CompileOutput(singleOutput)
     val basicReporterConfig = ReporterUtil.getDefaultReporterConfig()
     val reporterConfig = basicReporterConfig.withMaximumErrors(maximumErrors)
     val reporter = ReporterManager.getReporter(log, reporterConfig)
     val progress = Optional.empty[CompileProgress]
-    compile(
-      sources,
-      getSource,
-      changes,
-      arguments.toArray,
-      output,
-      callback,
-      reporter,
-      cache,
-      log,
-      progress
-    )
+    compile(sources, getSource, changes, args, output, callback, reporter, cache, log, progress)
   }
 
   def compile(

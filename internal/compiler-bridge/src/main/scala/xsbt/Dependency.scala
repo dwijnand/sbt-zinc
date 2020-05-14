@@ -18,7 +18,10 @@ import DependencyContext._
 
 import scala.tools.nsc.io.{ PlainFile, ZipArchive }
 import scala.tools.nsc.Phase
-import java.util.{ Optional, HashMap => JavaMap, HashSet => JavaSet }
+
+import java.util.{ HashSet => JavaSet }
+import java.util.{ HashMap => JavaMap }
+import java.util.Optional
 import scala.collection.JavaConverters._
 
 object Dependency {
@@ -123,7 +126,7 @@ final class Dependency(val global: CallbackGlobal) extends LocateClassFile with 
         callback.binaryDependency(file, binaryClassName, fromClassName, sourceFile, context)
 
       import scala.tools.nsc.io.AbstractFile
-      def processExternalDependency(binaryClassName: String, at: AbstractFile) = {
+      def processExternalDependency(binaryClassName: String, at: AbstractFile): Unit = {
         at match {
           case zipEntry: ZipArchive#Entry =>
             // The dependency comes from a JAR
