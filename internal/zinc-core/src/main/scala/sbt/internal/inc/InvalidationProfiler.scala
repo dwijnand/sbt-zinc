@@ -109,7 +109,7 @@ class ZincInvalidationProfiler extends InvalidationProfiler with XInvalidationPr
             case PatMatTarget => Zprof.Scope.newBuilder.setKind(memo("patmat target")).build
           }
           Zprof.UsedName.newBuilder
-            .setName(memo(name.name))
+            .setName(name.nameHash)
             .addAllScopes(scopes)
             .build
         }

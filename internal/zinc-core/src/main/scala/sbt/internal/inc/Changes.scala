@@ -83,27 +83,23 @@ final case class TraitPrivateMembersModified(modified: String) extends APIChange
 final case class ModifiedNames(names: Set[UsedName]) {
   def in(scope: UseScope): Set[UsedName] = names.filter(_.scopes.contains(scope))
 
-  import collection.JavaConverters._
-  private lazy val lookupMap: Set[(String, UseScope)] =
-    names.flatMap(n => n.scopes.asScala.map(n.name -> _))
+  private lazy val lookupMap: Set[(Int, UseScope)] =
+    names.flatMap(n => n.scopes.asScala.map(n.nameHash -> _))
 
   def isModified(usedName: UsedName): Boolean =
-    usedName.scopes.asScala.exists(scope => lookupMap.contains(usedName.name -> scope))
+    usedName.scopes.asScala.exists(scope => lookupMap.contains(usedName.nameHash -> scope))
 
-  override def toString: String =
-    s"ModifiedNames(changes = ${names.mkString(", ")})"
+  override def toString = s"ModifiedNames(changes = ${names.mkString(", ")})"
 }
+
 object ModifiedNames {
   def compareTwoNameHashes(a: Array[NameHash], b: Array[NameHash]): ModifiedNames = {
     val xs = a.toSet
     val ys = b.toSet
-    val changed = (xs union ys) diff (xs intersect ys)
+    val changed = xs.union(ys).diff(xs.intersect(ys))
     val modifiedNames: Set[UsedName] = changed
       .groupBy(_.name)
-      .map({
-        case (name, nameHashes) =>
-          UsedName(name, nameHashes.map(_.scope()))
-      })
+      .map { case (name, nameHashes) => UsedName(name.hashCode, nameHashes.map(_.scope)) }
       .toSet
 
     ModifiedNames(modifiedNames)

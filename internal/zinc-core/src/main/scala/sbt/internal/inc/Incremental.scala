@@ -865,7 +865,8 @@ private final class AnalysisCallback(
 
   def usedName(className: String, name: String, useScopes: EnumSet[UseScope]) =
     usedNames.synchronized {
-      usedNames.getOrElseUpdate(className, mutable.Set.empty) += UsedName.make(name, useScopes)
+      val nameHash = name.hashCode
+      usedNames.getOrElseUpdate(className, mutable.Set.empty) += UsedName.make(nameHash, useScopes)
       ()
     }
 

@@ -14,7 +14,7 @@ package xsbti.compile;
 import xsbti.UseScope;
 
 public interface UsedName {
-    String getName();
+    int getNameHash();
     java.util.EnumSet<UseScope> getScopes();
 }
 

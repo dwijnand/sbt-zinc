@@ -186,7 +186,7 @@ object AnalysisGenerators {
 
   def genUsedName(namesGen: Gen[String] = genScalaName): Gen[UsedName] =
     for (name <- namesGen; scopes <- Gen.someOf(UseScope.values()))
-      yield UsedName(name, UseScope.Default +: scopes)
+      yield UsedName(name.hashCode, UseScope.Default +: scopes)
 
   def genUsedNames(classNames: Seq[String]): Gen[Relations.UsedNames] =
     for (allNames <- listOfN(classNames.length, containerOf[Set, UsedName](genUsedName())))

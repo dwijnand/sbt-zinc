@@ -32,9 +32,9 @@ object Mapper {
   val forUsedName: Mapper[UsedName] = {
     val enumSetSerializer = EnumSetSerializer(UseScope.values())
     def serialize(usedName: UsedName): String =
-      s"${enumSetSerializer.serialize(usedName.scopes)}${usedName.name}"
+      s"${enumSetSerializer.serialize(usedName.scopes)}${usedName.nameHash}"
 
-    def deserialize(s: String) = UsedName(s.tail, enumSetSerializer.deserialize(s.head))
+    def deserialize(s: String) = UsedName(s.tail.toInt, enumSetSerializer.deserialize(s.head))
 
     Mapper(deserialize, serialize)
   }

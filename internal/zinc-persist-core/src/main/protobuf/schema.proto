@@ -402,7 +402,7 @@ message APIs {
 }
 
 message UsedName {
-    string name = 1;
+    sint32 nameHash = 1;
     repeated UseScope scopes = 2;
 }
 

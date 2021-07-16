@@ -12,7 +12,6 @@
 package sbt.internal.inc.binary.converters
 
 import java.nio.file.{ Path, Paths }
-import java.util
 import java.util.{ List => JList, Map => JMap }
 import sbt.internal.inc.Relations.ClassDependencies
 import sbt.internal.inc._
@@ -702,15 +701,11 @@ final class ProtobufReaders(mapper: ReadMapper, currentVersion: Schema.Version) 
     }
 
     def fromUsedName(usedName: Schema.UsedName): UsedName = {
-      val name = usedName.getName.intern()
-      val useScopes = util.EnumSet.noneOf(classOf[UseScope])
-      val len = usedName.getScopesCount
-      for {
-        i <- 0 to len - 1
-      } {
+      val nameHash = usedName.getNameHash
+      val useScopes = java.util.EnumSet.noneOf(classOf[UseScope])
+      for (i <- 0 until usedName.getScopesCount)
         useScopes.add(fromUseScope(usedName.getScopes(i), usedName.getScopesValue(i)))
-      }
-      UsedName.make(name, useScopes)
+      UsedName.make(nameHash, useScopes)
     }
 
     def fromUsedNamesMap(

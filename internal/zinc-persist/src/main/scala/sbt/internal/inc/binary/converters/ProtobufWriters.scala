@@ -645,9 +645,8 @@ final class ProtobufWriters(mapper: WriteMapper) {
     import sbt.internal.util.Relation
 
     def toUsedName(usedName: UsedName): Schema.UsedName = {
-      val name = usedName.name
-      val builder = Schema.UsedName.newBuilder
-        .setName(name)
+      val nameHash = usedName.nameHash
+      val builder = Schema.UsedName.newBuilder.setNameHash(nameHash)
       val it = usedName.scopes.iterator
       while (it.hasNext) builder.addScopes(toUseScope(it.next))
       builder.build

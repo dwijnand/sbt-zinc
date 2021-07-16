@@ -140,7 +140,7 @@ class ExtractUsedNames[GlobalType <: CallbackGlobal](val global: GlobalType)
     traverser.usedNamesFromClasses.foreach { (rawClassName, usedNames) =>
       val className = rawClassName.toString.trim.intern()
       usedNames.defaultNames.foreach { rawUsedName =>
-        val useName = rawUsedName.decoded.trim.intern()
+        val useName = rawUsedName.decoded.trim
         val existingScopes = usedNames.scopedNames.get(rawUsedName)
         val useScopes = {
           if (existingScopes == null) DefaultScopes
