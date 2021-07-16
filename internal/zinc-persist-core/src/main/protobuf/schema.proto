@@ -401,18 +401,19 @@ message APIs {
     map<string, AnalyzedClass> external = 2;
 }
 
-message UsedName {
-    sint32 nameHash = 1;
-    repeated UseScope scopes = 2;
-}
-
 /** Defines a container for the values of maps. */
 message Values {
     repeated string values = 1;
 }
 
 message UsedNames {
-    repeated UsedName usedNames = 1;
+    UseScope scope = 1;
+    repeated sint32 nameHashes = 2;
+}
+
+/** Defines a container for the values of the used names map. */
+message UsedNameValues {
+    repeated UsedNames usedNames = 2;
 }
 
 message ClassDependencies {
@@ -433,7 +434,7 @@ message Relations {
     map<string, Values> classes = 4;
     map<string, Values> productClassName = 5;
     /** Defines relation between names and their used names. */
-    map<string, UsedNames> names = 6;
+    map<string, UsedNameValues> names = 6;
 
     ClassDependencies memberRef = 7;
     ClassDependencies inheritance = 8;

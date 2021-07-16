@@ -641,23 +641,26 @@ final class ProtobufWriters(mapper: WriteMapper) {
   private final val prodToString = (f: VirtualFileRef) => toStringPathV(mapper.mapProductFile(f))
 
   private final val stringId = identity[String] _
+
   def toRelations(relations: Relations): Schema.Relations = {
     import sbt.internal.util.Relation
+    import scala.collection.JavaConverters._
 
-    def toUsedName(usedName: UsedName): Schema.UsedName = {
-      val nameHash = usedName.nameHash
-      val builder = Schema.UsedName.newBuilder.setNameHash(nameHash)
-      val it = usedName.scopes.iterator
-      while (it.hasNext) builder.addScopes(toUseScope(it.next))
-      builder.build
-    }
-
-    def toUsedNamesMap(map: Relations.UsedNames): Iterator[(String, Schema.UsedNames)] = {
+    def toUsedNamesMap(map: Relations.UsedNames): Iterator[(String, Schema.UsedNameValues)] = {
       map.iterator.map {
         case (k, names) =>
-          val builder = Schema.UsedNames.newBuilder
-          names.foreach(name => builder.addUsedNames(toUsedName(name)))
-          k -> builder.build
+          val b1 = Schema.UsedNameValues.newBuilder
+          val b2 = Schema.UsedNames.newBuilder
+          for {
+            name <- names
+            scope <- name.scopes.asScala
+          } {
+            b2.setScope(toUseScope(scope))
+            // TODO this isn't the plan at all
+            b2.addNameHashes(name.nameHash)
+          }
+          b1.addUsedNames(b2.build)
+          k -> b1.build
       }
     }
 
