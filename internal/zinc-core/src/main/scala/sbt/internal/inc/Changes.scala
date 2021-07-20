@@ -20,7 +20,6 @@ import xsbti.api.NameHash
 import xsbti.compile.Changes
 import xsbti.compile.{ APIChange => XAPIChange }
 import xsbti.compile.{ InitialChanges => XInitialChanges }
-import xsbti.compile.{ UsedName => XUsedName }
 
 final case class InitialChanges(
     internalSrc: Changes[VirtualFileRef],
@@ -48,11 +47,6 @@ final class APIChanges(val apiChanges: Iterable[APIChange]) {
 
 sealed abstract class APIChange(val modifiedClass: String) extends XAPIChange {
   override def getModifiedClass: String = modifiedClass
-  override def getModifiedNames: java.util.Set[XUsedName] = this match {
-    case _: APIChangeDueToMacroDefinition => java.util.Collections.emptySet[XUsedName]
-    case _: TraitPrivateMembersModified   => java.util.Collections.emptySet[XUsedName]
-    case NamesChange(_, modifiedNames)    => modifiedNames.names.map(x => x: XUsedName).asJava
-  }
 }
 
 /**
@@ -80,14 +74,10 @@ final case class TraitPrivateMembersModified(modified: String) extends APIChange
  * on whether modified name is implicit or not. Implicit names are much more difficult to handle
  * due to difficulty of reasoning about the implicit scope.
  */
-final case class ModifiedNames(names: Set[UsedName]) {
-  def in(scope: UseScope): Set[UsedName] = names.filter(_.scopes.contains(scope))
+final case class ModifiedNames(names: Map[UseScope, Set[UsedName]]) {
+  def in(scope: UseScope): Set[UsedName] = names.getOrElse(scope, Set.empty)
 
-  private lazy val lookupMap: Set[(Int, UseScope)] =
-    names.flatMap(n => n.scopes.asScala.map(n.nameHash -> _))
-
-  def isModified(usedName: UsedName): Boolean =
-    usedName.scopes.asScala.exists(scope => lookupMap.contains(usedName.nameHash -> scope))
+  def isModified(scope: UseScope, usedName: UsedName): Boolean = in(scope).contains(usedName)
 
   override def toString = s"ModifiedNames(changes = ${names.mkString(", ")})"
 }
@@ -97,11 +87,10 @@ object ModifiedNames {
     val xs = a.toSet
     val ys = b.toSet
     val changed = xs.union(ys).diff(xs.intersect(ys))
-    val modifiedNames: Set[UsedName] = changed
-      .groupBy(_.name)
-      .map { case (name, nameHashes) => UsedName(name.hashCode, nameHashes.map(_.scope)) }
-      .toSet
-
+    val modifiedNames = changed.groupBy(_.scope).map {
+      case (scope, nameHashes) =>
+        scope -> nameHashes.map(name => UsedName(name.hash))
+    }
     ModifiedNames(modifiedNames)
   }
 }

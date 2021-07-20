@@ -60,7 +60,7 @@ final class ProtobufWriters(mapper: WriteMapper) {
           .setMillis(lm.value)
           .build
         s0.setLastModified(x)
-      case _: Stamp => s0
+      case _: Stamp =>
     }
     s0.build
   }
@@ -644,23 +644,20 @@ final class ProtobufWriters(mapper: WriteMapper) {
 
   def toRelations(relations: Relations): Schema.Relations = {
     import sbt.internal.util.Relation
-    import scala.collection.JavaConverters._
 
     def toUsedNamesMap(map: Relations.UsedNames): Iterator[(String, Schema.UsedNameValues)] = {
       map.iterator.map {
-        case (k, names) =>
-          val b1 = Schema.UsedNameValues.newBuilder
-          val b2 = Schema.UsedNames.newBuilder
-          for {
-            name <- names
-            scope <- name.scopes.asScala
-          } {
-            b2.setScope(toUseScope(scope))
-            // TODO this isn't the plan at all
-            b2.addNameHashes(name.nameHash)
-          }
-          b1.addUsedNames(b2.build)
-          k -> b1.build
+        case (k, scopeToNames) =>
+          k -> scopeToNames
+            .foldLeft(Schema.UsedNameValues.newBuilder) {
+              case (allScopes, (sc, names)) =>
+                val namesBuilder = Schema.UsedNames.newBuilder
+                namesBuilder.setScope(toUseScope(sc))
+                names.foreach(name => namesBuilder.addNameHashes(name.nameHash))
+                allScopes.addUsedNames(namesBuilder.build)
+                allScopes
+            }
+            .build
       }
     }
 

@@ -11,22 +11,11 @@
 
 package sbt.internal.inc
 
-import xsbti.compile.{ UsedName => XUsedName }
-import xsbti.UseScope
-
-case class UsedName private (nameHash: Int, scopes: java.util.EnumSet[UseScope]) extends XUsedName {
+case class UsedName private (nameHash: Int) extends xsbti.compile.UsedName {
   override def getNameHash: Int = nameHash
-  override def getScopes: java.util.EnumSet[UseScope] = scopes
 }
 
 object UsedName {
-  def apply(nameHash: Int, scopes: Iterable[UseScope] = Nil): UsedName = {
-    val useScopes = java.util.EnumSet.noneOf(classOf[UseScope])
-    scopes.foreach(useScopes.add)
-    make(nameHash, useScopes)
-  }
-
-  def make(nameHash: Int, useScopes: java.util.EnumSet[UseScope]): UsedName = {
-    new UsedName(nameHash, useScopes)
-  }
+  def apply(nameHash: Int): UsedName = make(nameHash)
+  def make(nameHash: Int): UsedName = new UsedName(nameHash)
 }

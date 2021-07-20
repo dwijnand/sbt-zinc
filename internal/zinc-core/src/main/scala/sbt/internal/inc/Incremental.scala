@@ -620,7 +620,8 @@ private final class AnalysisCallback(
   private[this] val objectApis = new TrieMap[String, ApiInfo]
   private[this] val classPublicNameHashes = new TrieMap[String, Array[NameHash]]
   private[this] val objectPublicNameHashes = new TrieMap[String, Array[NameHash]]
-  private[this] val usedNames = mutable.Map.empty[String, mutable.Set[UsedName]]
+  private[this] val usedNames =
+    mutable.Map.empty[String, mutable.Map[UseScope, mutable.Set[UsedName]]]
   private[this] val unreporteds = new TrieMap[VirtualFileRef, ConcurrentLinkedQueue[Problem]]
   private[this] val reporteds = new TrieMap[VirtualFileRef, ConcurrentLinkedQueue[Problem]]
   private[this] val mainClasses = new TrieMap[VirtualFileRef, ConcurrentLinkedQueue[String]]
@@ -858,9 +859,10 @@ private final class AnalysisCallback(
 
   def usedName(className: String, name: String, useScopes: EnumSet[UseScope]) =
     usedNames.synchronized {
-      val nameHash = name.hashCode
-      usedNames.getOrElseUpdate(className, mutable.Set.empty) += UsedName.make(nameHash, useScopes)
-      ()
+      val map = usedNames.getOrElseUpdate(className, mutable.Map.empty)
+      useScopes.iterator.asScala.foreach { scope =>
+        map.getOrElseUpdate(scope, mutable.Set.empty) += UsedName(name.hashCode)
+      }
     }
 
   override def enabled(): Boolean = options.enabled

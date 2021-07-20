@@ -11,9 +11,6 @@
 
 package xsbti.compile;
 
-import java.util.Set;
-
 public interface APIChange {
     String getModifiedClass();
-    Set<UsedName> getModifiedNames();
 }

@@ -185,12 +185,11 @@ object AnalysisGenerators {
     Gen.listOf(Gen.oneOf(Gen.choose('!', 'Z'), Gen.const('\n'))).map(_.toString())
 
   def genUsedName(namesGen: Gen[String] = genScalaName): Gen[UsedName] =
-    for (name <- namesGen; scopes <- Gen.someOf(UseScope.values()))
-      yield UsedName(name.hashCode, UseScope.Default +: scopes)
+    for (name <- namesGen) yield UsedName(name.hashCode)
 
   def genUsedNames(classNames: Seq[String]): Gen[Relations.UsedNames] =
     for (allNames <- listOfN(classNames.length, containerOf[Set, UsedName](genUsedName())))
-      yield zipMap(classNames, allNames)
+      yield zipMap(classNames, allNames.map(names => Map(UseScope.Default -> names)))
 
   def genFileVRef: Gen[VirtualFileRef] = genFile.map(x => VirtualFileRef.of(x.toPath.toString))
 

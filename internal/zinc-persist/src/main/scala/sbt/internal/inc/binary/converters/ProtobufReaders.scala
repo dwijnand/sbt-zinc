@@ -700,21 +700,17 @@ final class ProtobufReaders(mapper: ReadMapper, currentVersion: Schema.Version) 
       new ClassDependencies(internal, external)
     }
 
-    def fromUsedNameHash(scope: UseScope, nameHash: Int): UsedName = {
-      UsedName.make(nameHash, java.util.EnumSet.of(scope))
-    }
-
     def fromUsedNamesMap(
         map: java.util.Map[String, Schema.UsedNameValues]
     ): Relations.UsedNames = {
       for {
         (k, usedValues) <- map.asScala
+      } yield k -> (for {
         used <- usedValues.getUsedNamesList.iterator.asScala
       } yield {
         val scope = fromUseScope(used.getScope, used.getScopeValue)
-        // TODO: this will add multiple UsedName in difference scopes
-        k -> used.getNameHashesList.asScala.iterator.map(fromUsedNameHash(scope, _)).toSet
-      }
+        scope -> used.getNameHashesList.asScala.iterator.map(UsedName(_)).toSet
+      }).toMap
     }
 
     def expected(msg: String) = ReadersFeedback.expected(msg, Classes.Relations)
