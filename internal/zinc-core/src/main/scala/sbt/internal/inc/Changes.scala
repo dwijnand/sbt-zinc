@@ -78,6 +78,8 @@ final case class ModifiedNames(names: Map[UseScope, Set[UsedName]]) {
   def in(scope: UseScope): Set[UsedName] = names.getOrElse(scope, Set.empty)
 
   def isModified(scope: UseScope, usedName: UsedName): Boolean = in(scope).contains(usedName)
+  def isModifiedRaw(scope: UseScope, nameHash: Int): Boolean =
+    in(scope).exists(_.nameHash == nameHash)
 
   override def toString = s"ModifiedNames(changes = ${names.mkString(", ")})"
 }

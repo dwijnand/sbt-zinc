@@ -700,19 +700,6 @@ final class ProtobufReaders(mapper: ReadMapper, currentVersion: Schema.Version) 
       new ClassDependencies(internal, external)
     }
 
-    def fromUsedNamesMap(
-        map: java.util.Map[String, Schema.UsedNameValues]
-    ): Relations.UsedNames = {
-      for {
-        (k, usedValues) <- map.asScala
-      } yield k -> (for {
-        used <- usedValues.getUsedNamesList.iterator.asScala
-      } yield {
-        val scope = fromUseScope(used.getScope, used.getScopeValue)
-        scope -> used.getNameHashesList.asScala.iterator.map(UsedName(_)).toSet
-      }).toMap
-    }
-
     def expected(msg: String) = ReadersFeedback.expected(msg, Classes.Relations)
 
     val srcProd = fromMap(relations.getSrcProdMap, stringToSource, stringToProd)
@@ -731,7 +718,7 @@ final class ProtobufReaders(mapper: ReadMapper, currentVersion: Schema.Version) 
     val classes = fromMap(relations.getClassesMap, stringToSource, stringId)
     val productClassName =
       fromMap(relations.getProductClassNameMap, stringId, stringId)
-    val names = fromUsedNamesMap(relations.getNamesMap)
+    val names = UsedNames.fromJavaMap(relations.getNamesMap)
     val internal = InternalDependencies(
       Map(
         DependencyContext.DependencyByMemberRef -> memberRef.internal,
