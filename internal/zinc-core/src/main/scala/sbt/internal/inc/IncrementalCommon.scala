@@ -36,11 +36,7 @@ import Incremental.{ CompileCycle, CompileCycleResult, IncrementalCallback, Pref
  * @param log An instance of a logger.
  * @param options An instance of incremental compiler options.
  */
-private[inc] abstract class IncrementalCommon(
-    val log: Logger,
-    options: IncOptions,
-    profiler: RunProfiler
-) extends InvalidationProfilerUtils {
+private[inc] abstract class IncrementalCommon(val log: Logger, options: IncOptions) {
   // Work around bugs in classpath handling such as the "currently" problematic -javabootclasspath
   private[this] def enableShallowLookup: Boolean =
     java.lang.Boolean.getBoolean("xsbt.skip.cp.lookup")
@@ -99,16 +95,6 @@ private[inc] abstract class IncrementalCommon(
         classfileManager,
         pruned,
         classesToRecompile,
-        profiler.registerCycle(
-          invalidatedClasses,
-          invalidatedByPackageObjects,
-          initialChangedSources,
-          invalidatedSources,
-          _,
-          _,
-          _,
-          _
-        )
       )
 
       // Actual compilation takes place here
@@ -149,7 +135,6 @@ private[inc] abstract class IncrementalCommon(
         classFileManager: XClassFileManager,
         pruned: Analysis,
         classesToRecompile: Set[String],
-        registerCycle: (Set[String], APIChanges, Set[String], Boolean) => Unit
     ) extends IncrementalCallback(classFileManager) {
       override val isFullCompilation: Boolean = allSources.subsetOf(invalidatedSources)
       override val previousAnalysisPruned: Analysis = pruned
@@ -188,12 +173,6 @@ private[inc] abstract class IncrementalCommon(
         val continue = nextInvalidations.nonEmpty &&
           lookup.shouldDoIncrementalCompilation(nextInvalidations, analysis)
 
-        val hasScala = Analysis.sources(partialAnalysis).scala.nonEmpty
-
-        // If we're completing the cycle and we had scala sources, then mergeAndInvalidate has already been called
-        if (!completingCycle || !hasScala) {
-          registerCycle(recompiledClasses, newApiChanges, nextInvalidations, continue)
-        }
         CompileCycleResult(continue, nextInvalidations, analysis)
       }
 
@@ -426,7 +405,6 @@ private[inc] abstract class IncrementalCommon(
 
     val init =
       InitialChanges(sourceChanges, removedProducts, changedLibraries, subprojectApiChanges)
-    profiler.registerInitial(init)
     // log.debug(s"initial changes: $init")
     init
   }

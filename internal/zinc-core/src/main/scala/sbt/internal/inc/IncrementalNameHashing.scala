@@ -28,11 +28,8 @@ import xsbt.api.SameAPI
  * See [[MemberRefInvalidator]] for more information on how the name heuristics work to invalidate
  * member references.
  */
-private[inc] class IncrementalNameHashingCommon(
-    log: Logger,
-    options: IncOptions,
-    profiler: RunProfiler
-) extends IncrementalCommon(log, options, profiler) {
+private[inc] class IncrementalNameHashingCommon(log: Logger, options: IncOptions)
+    extends IncrementalCommon(log, options) {
   import IncrementalCommon.transitiveDeps
 
   private val memberRefInvalidator = new MemberRefInvalidator(log, options.logRecompileOnMacro())
@@ -149,17 +146,8 @@ private[inc] class IncrementalNameHashingCommon(
     val memberRefInv = memberRefInvalidator.get(_, relations.names, change, isScalaClass)
 
     val transitiveInheritance = invalidateByInheritance(relations, modifiedClass)
-    val reason1 = s"The invalidated class names inherit directly or transitively on $modifiedClass."
-    profiler.registerEvent(InheritanceKind, List(modifiedClass), transitiveInheritance, reason1)
-
     val localInheritance = transitiveInheritance.flatMap(invalidateByLocalInheritance(relations, _))
-    val reason2 =
-      s"The invalidated class names inherit (via local inheritance) directly or transitively on $modifiedClass."
-    profiler.registerEvent(LocalInheritanceKind, transitiveInheritance, localInheritance, reason2)
-
     val memberRef = transitiveInheritance.flatMap(memberRefInv(relations.memberRef.internal))
-    val reason3 = s"The invalidated class names refer directly or transitively to $modifiedClass."
-    profiler.registerEvent(MemberReferenceKind, transitiveInheritance, memberRef, reason3)
 
     val all = transitiveInheritance ++ localInheritance ++ memberRef
     log.debug {
@@ -184,5 +172,5 @@ private[inc] class IncrementalNameHashingCommon(
   ): Set[String] = relations.memberRef.internal.reverse(className)
 }
 
-private final class IncrementalNameHashing(log: Logger, options: IncOptions, profiler: RunProfiler)
-    extends IncrementalNameHashingCommon(log, options, profiler)
+private final class IncrementalNameHashing(log: Logger, options: IncOptions)
+    extends IncrementalNameHashingCommon(log, options)

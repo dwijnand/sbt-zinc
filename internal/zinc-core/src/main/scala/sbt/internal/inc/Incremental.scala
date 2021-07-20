@@ -161,9 +161,7 @@ object Incremental {
       p -> updatesJar
     }
 
-    val profiler = options.externalHooks.getInvalidationProfiler
-    val runProfiler = new AdaptedRunProfiler(profiler.profileRun)
-    val incremental: IncrementalCommon = new IncrementalNameHashing(log, options, runProfiler)
+    val incremental: IncrementalCommon = new IncrementalNameHashing(log, options)
     try {
       incrementalCompile(
         sources,
@@ -171,11 +169,7 @@ object Incremental {
         lookup,
         previous,
         currentStamper,
-        (vs, depCh, cb, cfm) => {
-          val startTime = System.nanoTime()
-          compile(vs, depCh, cb, cfm)
-          runProfiler.timeCompilation(startTime, System.nanoTime() - startTime)
-        },
+        compile,
         new AnalysisCallback.Builder(
           internalBinaryToSourceClassName,
           internalSourceToClassNamesMap,
@@ -208,7 +202,7 @@ object Incremental {
         // in case compilation got cancelled potential partial compilation results (e.g. produced classs files) got rolled back
         // and we can report back as there was no change (false) and return a previous Analysis which is still up-to-date
         (false, previous)
-    } finally runProfiler.registerRun()
+    }
   }
 
   def extractEarlyJar(earlyOutput: Option[Output]): Option[Path] =
@@ -309,7 +303,6 @@ object Incremental {
    * @param log  The log where we write debugging information
    * @param options  Incremental compilation options
    * @param outputJarContent Object that holds cached content of output jar
-   * @param profiler An implementation of an invalidation profiler, empty by default.
    * @param equivS  The means of testing whether two "Stamps" are the same.
    * @return
    *         A flag of whether or not compilation completed successfully, and the resulting dependency analysis object.
