@@ -26,7 +26,7 @@ object UsedName {
 }
 
 sealed abstract class UsedNames private {
-  def isEmpty = true
+  def isEmpty: Boolean
 
   def ++(other: UsedNames): UsedNames
   def --(classes: Iterable[String]): UsedNames
@@ -38,27 +38,28 @@ sealed abstract class UsedNames private {
 object UsedNames {
   def fromJavaMap(map: ju.Map[String, Schema.UsedNameValues]): UsedNames = {
     new UsedNames {
+      private def fromUseScope(useScope: Schema.UseScope): UseScope = useScope match {
+        case Schema.UseScope.DEFAULT  => UseScope.Default
+        case Schema.UseScope.IMPLICIT => UseScope.Implicit
+        case Schema.UseScope.PATMAT   => UseScope.PatMatTarget
+        case x                        => throw new MatchError(x)
+      }
       private def convert: UsedNames = {
         import scala.collection.JavaConverters._
-        def fromUseScope(useScope: Schema.UseScope, id: Int): UseScope = useScope match {
-          case Schema.UseScope.DEFAULT      => UseScope.Default
-          case Schema.UseScope.IMPLICIT     => UseScope.Implicit
-          case Schema.UseScope.PATMAT       => UseScope.PatMatTarget
-          case Schema.UseScope.UNRECOGNIZED => ???
-        }
         def fromUsedNamesMap(map: ju.Map[String, Schema.UsedNameValues]) = {
           for {
             (k, usedValues) <- map.asScala
           } yield k -> (for {
             used <- usedValues.getUsedNamesList.iterator.asScala
           } yield {
-            val scope = fromUseScope(used.getScope, used.getScopeValue)
-            scope -> used.getNameHashesList.asScala.iterator.map(UsedName(_)).toSet
+            fromUseScope(used.getScope) ->
+              used.getNameHashesList.asScala.iterator.map(UsedName(_)).toSet
           }).toMap
         }
         fromMultiMap(fromUsedNamesMap(map))
       }
 
+      def isEmpty = map.isEmpty
       def ++(other: UsedNames) = convert ++ other
       def --(classes: Iterable[String]) = convert -- classes
       def iterator = convert.iterator
@@ -70,7 +71,7 @@ object UsedNames {
         val n = usedNameValues.getUsedNamesCount
         while (i < n) {
           val usedNames = usedNameValues.getUsedNames(i)
-          val scope = usedNames.getScope
+          val scope = fromUseScope(usedNames.getScope)
           var i2 = 0
           val n2 = usedNames.getNameHashesCount
           while (i2 < n2) {
@@ -90,6 +91,7 @@ object UsedNames {
 
   def fromMultiMap(map: sc.Map[String, sc.Map[UseScope, sc.Set[UsedName]]]): UsedNames = {
     new UsedNames {
+      def isEmpty = map.isEmpty
       def ++(other: UsedNames) = fromMultiMap(map ++ other.iterator)
       def --(classes: Iterable[String]) = fromMultiMap(map -- classes)
       def iterator = map.iterator
